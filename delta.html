@@ -329,6 +329,20 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </select>
   </div>
 
+  <div class="ctrl">
+    <span class="lbl">TZ</span>
+    <select id="sTZ" title="Time zone for x-axis, hover tooltip, and last-update stamp">
+      <option value="local" selected>Local</option>
+      <option value="UTC">UTC</option>
+      <option value="America/New_York">NY</option>
+      <option value="America/Chicago">Chicago</option>
+      <option value="Europe/London">London</option>
+      <option value="Europe/Berlin">Berlin</option>
+      <option value="Asia/Tokyo">Tokyo</option>
+      <option value="Asia/Hong_Kong">HK</option>
+    </select>
+  </div>
+
   <div class="sep"></div>
   <button class="btn on pulse" id="btnLive">● LIVE</button>
   <button class="btn" id="btnReset">RESET ZOOM</button>
@@ -626,13 +640,34 @@ function ingest(data, greek) {
 
   document.getElementById('v-sn').textContent = snapshots.length;
   document.getElementById('v-ts').textContent =
-    new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    tsFormatter('hms').format(new Date(ts));
 }
 
 // ═══════════════════════════════════════════════════════
 //  Y-AXIS MODE — translates strike+spot into the y-value
 // ═══════════════════════════════════════════════════════
 function yMode() { return document.getElementById('sYAxis').value; }
+
+// ═══════════════════════════════════════════════════════
+//  TIME ZONE — single source of truth for all time formatting
+// ═══════════════════════════════════════════════════════
+// kind: 'hm' = HH:MM, 'hms' = HH:MM:SS, 'full' = HH:MM:SS with TZ short name.
+// Always 24-hour (en-GB locale), optionally pinned to a named TZ.
+function tsFormatter(kind) {
+  const el = document.getElementById('sTZ');
+  const tz = el ? el.value : 'local';
+  const opts = { hour: '2-digit', minute: '2-digit', hour12: false };
+  if (kind === 'hms' || kind === 'full') opts.second = '2-digit';
+  if (kind === 'full' && tz !== 'local') opts.timeZoneName = 'short';
+  if (tz && tz !== 'local') opts.timeZone = tz;
+  try {
+    return new Intl.DateTimeFormat('en-GB', opts);
+  } catch {
+    // Fall back silently if the TZ isn't recognized by the browser.
+    delete opts.timeZone; delete opts.timeZoneName;
+    return new Intl.DateTimeFormat('en-GB', opts);
+  }
+}
 
 // For a given snapshot's strike, compute its y-value under the current axis mode.
 function yValue(strike, spot) {
@@ -1215,37 +1250,52 @@ function renderHeat() {
   const latest = snapshots[endI - 1];
   const latestSpot = latest.meta.spot || 0;
 
-  // ── Level traces — historical M+, M−, ZG drawn like the spot line so each
-  //    value stays locked to its original snapshot's column. Lines follow the
-  //    level's actual path over time and remain visible when scrolled back.
+  // ── Level traces — historical M+, M−, ZG drawn per-snapshot so each value
+  //    stays locked to its original column. Rendered as a step function
+  //    (horizontal + vertical segments only) because these are discrete strike
+  //    levels — the level never slides through intermediate prices, it jumps
+  //    between strikes. Segments break across gaps (missing/invalid values or
+  //    points outside the visible y-range) so we don't draw connecting lines
+  //    across discontinuities.
   function drawLevelTrace(getValue, color, label, dash) {
-    const pts = [];
+    const segments = [];
+    let cur = [];
+    const flushSeg = () => { if (cur.length) { segments.push(cur); cur = []; } };
     for (let ci = startI; ci < endI; ci++) {
       const v = parseFloat(getValue(snapshots[ci]));
-      if (!isFinite(v) || v <= 0) continue;
+      if (!isFinite(v) || v <= 0) { flushSeg(); continue; }
       const spot = snapshots[ci].meta.spot || 0;
       const yv = yValue(v, spot);
-      if (yv < yDomain.min || yv > yDomain.max) continue;
-      pts.push({
+      if (yv < yDomain.min || yv > yDomain.max) { flushSeg(); continue; }
+      cur.push({
         x: effPAX + (ci - startI) * effColW + effColW / 2,
         y: yToPx(yv, H),
         raw: v,
       });
     }
-    if (!pts.length) return;
+    flushSeg();
+    if (!segments.length) return;
 
     heatCX.save();
     heatCX.globalAlpha = 0.85;
     heatCX.strokeStyle = color;
     heatCX.lineWidth   = 1.25;
     heatCX.setLineDash(dash || []);
-    heatCX.beginPath();
-    heatCX.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) heatCX.lineTo(pts[i].x, pts[i].y);
-    heatCX.stroke();
+
+    for (const seg of segments) {
+      heatCX.beginPath();
+      heatCX.moveTo(seg[0].x, seg[0].y);
+      for (let i = 1; i < seg.length; i++) {
+        // step: hold previous y until the new column, then jump vertically
+        heatCX.lineTo(seg[i].x, seg[i - 1].y);
+        heatCX.lineTo(seg[i].x, seg[i].y);
+      }
+      heatCX.stroke();
+    }
 
     // Right-edge label at the rightmost visible point's y
-    const last = pts[pts.length - 1];
+    const lastSeg = segments[segments.length - 1];
+    const last    = lastSeg[lastSeg.length - 1];
     heatCX.globalAlpha = 1;
     heatCX.setLineDash([]);
     heatCX.fillStyle = color;
@@ -1337,10 +1387,12 @@ function renderHeat() {
   heatCX.fillStyle = '#000'; heatCX.fillRect(PAX, drawH, drawW + LGAP, TAX);
   heatCX.fillStyle = '#606060'; heatCX.fillRect(PAX, drawH, drawW, 1);
   heatCX.fillStyle = '#fff'; heatCX.font = 'bold 11px Courier New'; heatCX.textAlign = 'center';
-  const tickEvery = Math.max(1, Math.round(56 / effColW));
+  const fmtHM = tsFormatter('hm');
+  // HH:MM in bold 11px Courier is ~33px wide — 40px spacing keeps a small gap.
+  const tickEvery = Math.max(1, Math.round(40 / effColW));
   for (let ci = startI; ci < endI; ci += tickEvery) {
     const x = effPAX + (ci - startI) * effColW + effColW / 2;
-    const t = new Date(snapshots[ci].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const t = fmtHM.format(new Date(snapshots[ci].ts));
     heatCX.fillText(t, x, drawH + 14);
   }
 
@@ -1590,9 +1642,7 @@ document.getElementById('btnLoad').addEventListener('click', () => {
       if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
       document.getElementById('v-sn').textContent = snapshots.length;
       document.getElementById('v-ts').textContent =
-        new Date(snapshots[snapshots.length - 1].ts).toLocaleTimeString([], {
-          hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
+        tsFormatter('hms').format(new Date(snapshots[snapshots.length - 1].ts));
       render();
     } catch (err) {
       alert('Load failed: ' + err.message);
@@ -1619,7 +1669,7 @@ document.getElementById('btnLoad').addEventListener('click', () => {
   });
 })();
 
-['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend'].forEach(id => {
+['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend','sTZ'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     if (['sTicker','sExpiry','sGreek'].includes(id)) {
       snapshots = []; yDomain = { min: 0, max: 0 };
@@ -1710,7 +1760,7 @@ heatCV.addEventListener('mousemove', e => {
     if (yMode() === 'abs')       yLabel = yv.toFixed(2);
     else if (yMode() === 'rel_pts') yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(2);
     else                         yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(3) + '%';
-    const ts = snap ? '  ·  ' + new Date(snap.ts).toLocaleTimeString() : '';
+    const ts = snap ? '  ·  ' + tsFormatter('hms').format(new Date(snap.ts)) : '';
     document.getElementById('cur').textContent = `${yLabel}${ts}`;
   }
 });

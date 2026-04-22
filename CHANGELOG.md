@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.1] — delta.html level-trace + time-axis fixes
+
+### Level traces
+- **Step-function rendering** for M+, M−, and ZG. `lineTo` between consecutive
+  snapshots was drawing diagonals through y-values the level never actually
+  held (e.g., a jump from the 7155 strike to the 7135 strike visually passed
+  through 7145). The renderer now holds the previous y horizontally until the
+  new column, then jumps vertically — reflecting the discrete strike-level
+  nature of these lines.
+- **Segments now break across gaps.** Missing/invalid values and points outside
+  the visible y-range no longer get connected by long stretched lines; the
+  path ends and restarts at the next valid point.
+
+### Time axis
+- **24-hour format** (HH:MM) on the x-axis, replacing the locale-default
+  12-hour `h:mm AM/PM`. Tighter labels — tick spacing reduced from 56→40px so
+  you get more ticks before they start to overlap.
+- **Time-zone selector** in the toolbar: Local / UTC / NY / Chicago / London /
+  Berlin / Tokyo / HK. Applies to the x-axis, cursor hover tooltip, and
+  last-update stamp. Driven by a single `tsFormatter(kind)` helper.
+
 ## [0.2.0] — delta.html overhaul
 
 ### Rendering
