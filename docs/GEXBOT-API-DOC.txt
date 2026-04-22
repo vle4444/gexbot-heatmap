@@ -1,0 +1,329 @@
+--- ALL ---
+tickers
+Returns the list of available ticker symbols supported by the API. This includes stocks, indexes, and futures that can be used with other endpoints.
+
+GET
+https://api.gexbot.com/tickers
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Example Request
+GET https://api.gexbot.com/tickers
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+stocks	array	Array of stock ticker symbols available for trading data.
+indexes	array	Array of index ticker symbols available for trading data.
+futures	array	Array of futures ticker symbols available for trading data.
+
+--- CLASSIC ---
+gex chain
+Requires Classic Subscription
+Provides a ladder-style histogram of GEX by Open Interest and Volume. Call GEX is netted against Put GEX for each strike. Includes historical "lookback" data points and major calculated levels.
+
+GET
+https://api.gexbot.com/{TICKER}/classic/{AGGREGATION_PERIOD}
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/classic/zero
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+min_dte	number	The days-to-expiration (DTE) for the nearest expiry.
+sec_min_dte	number	The days-to-expiration (DTE) for the next expiry.
+spot	number	The spot price of the underlying asset at the time of calculation.
+zero_gamma	number	The center of the options complex, according to a spline interpolation on gex by volume.
+major_pos_vol	number	The strike with the most positive gamma exposure, based on volume.
+major_pos_oi	number	The strike with the most positive gamma exposure, based on open interest.
+major_neg_vol	number	The strike with the most negative gamma exposure, based on volume.
+major_neg_oi	number	The strike with the most negative gamma exposure, based on open interest.
+strikes	array	An array of strike data. Each inner array contains [strike, gex by volume, gex by open interest, priors]. Priors are historical GEX values at set intervals.
+sum_gex_vol	number	The total gamma exposure based on volume across all strikes.
+sum_gex_oi	number	The total gamma exposure based on open interest across all strikes.
+delta_risk_reversal	number	Vestigial metric, discontinued.
+max_priors	array	An array showing the strikes with the largest GEX change over various time intervals (1, 5, 10, 15, 30 min).
+
+gex major levels
+Requires Classic Subscription
+Provides the key GEX levels (Zero Gamma, Major Positive/Negative GEX by OI and Volume) from the classic GEX model. This is a slimmed-down version of the main GEX chain endpoint.
+
+GET
+https://api.gexbot.com/{TICKER}/classic/{AGGREGATION_PERIOD}/majors
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/classic/full/majors
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+spot	number	The spot price of the underlying asset.
+mpos_vol	number	The strike with the most positive GEX by volume.
+mpos_oi	number	The strike with the most positive GEX by open interest.
+mneg_vol	number	The strike with the most negative GEX by volume.
+mneg_oi	number	The strike with the most negative GEX by open interest.
+zero_gamma	number	The center of the options complex, according to a spline interpolation on gex by volume.
+net_gex_vol	number	Total net gamma exposure by volume.
+net_gex_oi	number	Total net gamma exposure by open interest.
+
+gex max change
+Requires Classic Subscription
+Contains the strikes with the most significant GEX change over various lookback periods (current, 1, 5, 10, 15, and 30 minutes). Also known as "max priors".
+
+GET
+https://api.gexbot.com/{TICKER}/classic/{AGGREGATION_PERIOD}/maxchange
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/classic/full/maxchange
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+current	array	The strike and GEX value with the largest change in the last calculation cycle.
+one	array	The strike and GEX value with the largest change in the last 1 minute.
+five	array	The strike and GEX value with the largest change in the last 5 minutes.
+ten	array	The strike and GEX value with the largest change in the last 10 minutes.
+fifteen	array	The strike and GEX value with the largest change in the last 15 minutes.
+thirty	array	The strike and GEX value with the largest change in the last 30 minutes.
+
+--- STATE ---
+gex profile
+Requires State Subscription
+Based on classified orderflow, this endpoint nets out imbalanced calls against imbalanced puts to locate areas of significant imbalanced exposure. It helps identify high/low gamma nodes and call/put gamma regimes.
+
+GET
+https://api.gexbot.com/{TICKER}/state/{AGGREGATION_PERIOD}
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/state/zero
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+min_dte	number	The days-to-expiration (DTE) for the nearest expiry.
+sec_min_dte	number	The days-to-expiration (DTE) for the next expiry.
+spot	number	The spot price of the underlying asset at the time of calculation.
+zero_gamma	number	The center of the options complex, according to a spline interpolation on gex by volume.
+major_pos_vol	number	The strike with the largest positive GEX imbalance (call GEX).
+major_pos_oi	number	Not applicable for State model, which is based on volume.
+major_neg_vol	number	The strike with the largest negative GEX imbalance (put GEX).
+major_neg_oi	number	Not applicable for State model, which is based on volume.
+strikes	array	An array of strike data. Each inner array contains [strike, gex by volume, gex by open interest, priors]. "GEX by Volume" here refers to the GEX imbalance.
+sum_gex_vol	number	The total GEX imbalance (net GEX) based on volume.
+sum_gex_oi	number	Not applicable for State model.
+delta_risk_reversal	number	Vestigial metric, discontinued.
+max_priors	array	An array showing the strikes with the largest GEX imbalance change over various time intervals.
+
+gex profile major levels
+Requires State Subscription
+Provides the major levels from the GEX Profile, including the strikes with the largest positive (call) and negative (put) GEX imbalances.
+
+GET
+https://api.gexbot.com/{TICKER}/state/{AGGREGATION_PERIOD}/majors
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/state/full/majors
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+spot	number	The spot price of the underlying asset.
+mpos_vol	number	Major positive GEX imbalance level (call GEX).
+mpos_oi	number	Not applicable for State model.
+mneg_vol	number	Major negative GEX imbalance level (put GEX).
+mneg_oi	number	Not applicable for State model.
+zero_gamma	number	Not applicable for State model
+net_gex_vol	number	The total GEX imbalance (net GEX) based on classified volume.
+net_gex_oi	number	Not applicable for State model.
+
+gex profile max change
+Requires State Subscription
+Shows the strikes with the most significant change in GEX imbalance over various lookback periods. Also known as "max priors" for the GEX Profile.
+
+GET
+https://api.gexbot.com/{TICKER}/state/{AGGREGATION_PERIOD}/maxchange
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+AGGREGATION_PERIOD	Aggregation period: full, zero, or one.
+Example Request
+GET https://api.gexbot.com/SPX/state/full/maxchange
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+current	array	The strike and GEX imbalance value with the largest change in the last calculation cycle.
+one	array	The strike and GEX imbalance value with the largest change in the last 1 minute.
+five	array	The strike and GEX imbalance value with the largest change in the last 5 minutes.
+ten	array	The strike and GEX imbalance value with the largest change in the last 10 minutes.
+fifteen	array	The strike and GEX imbalance value with the largest change in the last 15 minutes.
+thirty	array	The strike and GEX imbalance value with the largest change in the last 30 minutes.
+
+options profile greeks
+Requires State Subscription
+Displays the results of our orderflow classification engine, showing the net imbalance of transactions for a specified Greek. This allows for detailed analysis of customer long vs. short positioning and its associated risks.
+
+GET
+https://api.gexbot.com/{TICKER}/state/{SPECIFIED_GREEK}
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+SPECIFIED_GREEK	The Greek to analyze. Options include delta (DEX), gamma (Convexity), vanna, and charm. Subscriptions vary.
+Options for SPECIFIED_GREEK:
+Value	Required Subscription
+delta_zero	
+State
+gamma_zero	
+State
+delta_one	
+State
+gamma_one	
+State
+charm_zero	
+State
+vanna_zero	
+State
+charm_one	
+State
+vanna_one	
+State
+Example Request
+GET https://api.gexbot.com/SPX/state/delta
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+spot	number	The spot price of the underlying asset.
+min_dte	number	The days-to-expiration (DTE) for the nearest expiry.
+sec_min_dte	number	The days-to-expiration (DTE) for the next expiry.
+major_positive	number	Strike with the largest positive exposure for the specified Greek.
+major_negative	number	Strike with the largest negative exposure for the specified Greek.
+major_long_gamma	number	Strike with the largest long customer gamma exposure.
+major_short_gamma	number	Strike with the largest short customer gamma exposure.
+mini_contracts	array	Array of strike data. Format: [strike, call_ivol, put_ivol, specified_greek, priors]. Priors show historical values for the specified greek.
+
+options profile greeks
+Requires State Subscription
+Displays the results of our orderflow classification engine, showing the net imbalance of transactions for a specified Greek. This allows for detailed analysis of customer long vs. short positioning and its associated risks.
+
+GET
+https://api.gexbot.com/{TICKER}/state/{SPECIFIED_GREEK}
+Headers
+Header	Description
+Authorization	Required. Format: "Bearer <YOUR_API_KEY>"
+User-Agent	Required. Identify your client application.
+Accept	Required. Set to "application/json".
+Path Parameters
+Parameter	Description
+TICKER	Desired ticker symbol (e.g., SPX).
+SPECIFIED_GREEK	The Greek to analyze. Options include delta (DEX), gamma (Convexity), vanna, and charm. Subscriptions vary.
+Options for SPECIFIED_GREEK:
+Value	Required Subscription
+delta_zero	
+State
+gamma_zero	
+State
+delta_one	
+State
+gamma_one	
+State
+charm_zero	
+State
+vanna_zero	
+State
+charm_one	
+State
+vanna_one	
+State
+Example Request
+GET https://api.gexbot.com/SPX/state/delta
+Authorization: Bearer <YOUR_API_KEY>
+User-Agent: YourClientApp/1.0
+Accept: application/json
+Response
+Field	Type	Description
+timestamp	number	The Unix timestamp of when the data was generated.
+ticker	string	The ticker symbol for the requested asset.
+spot	number	The spot price of the underlying asset.
+min_dte	number	The days-to-expiration (DTE) for the nearest expiry.
+sec_min_dte	number	The days-to-expiration (DTE) for the next expiry.
+major_positive	number	Strike with the largest positive exposure for the specified Greek.
+major_negative	number	Strike with the largest negative exposure for the specified Greek.
+major_long_gamma	number	Strike with the largest long customer gamma exposure.
+major_short_gamma	number	Strike with the largest short customer gamma exposure.
+mini_contracts	array	Array of strike data. Format: [strike, call_ivol, put_ivol, specified_greek, priors]. Priors show historical values for the specified greek.

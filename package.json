@@ -1,0 +1,25 @@
+{
+  "name": "gexbot-heatmap",
+  "version": "1.0.0",
+  "description": "Bookmap-style live GEX heatmap for the GexBot API. Dependency-free Node.js server + vanilla HTML/Canvas dashboards.",
+  "main": "server.js",
+  "scripts": {
+    "start":  "node server.js",
+    "record": "node recorder.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "options",
+    "gex",
+    "gamma-exposure",
+    "heatmap",
+    "visualization",
+    "trading",
+    "gexbot"
+  ],
+  "author": "V",
+  "license": "MIT",
+  "dependencies": {}
+}

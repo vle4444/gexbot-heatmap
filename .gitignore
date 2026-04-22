@@ -1,0 +1,31 @@
+# Secrets — never commit
+.env
+.env.local
+*.key
+
+# Recorder output — large, per-user
+data/
+
+# Saved UI session exports
+*.session.json
+gexbot-*-*-*.json
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Misc
+.cache/
+*.log
