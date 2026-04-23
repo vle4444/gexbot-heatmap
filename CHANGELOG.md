@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.2] — vertical resolution: Strike-px + reduced default kernel
+
+### Rendering
+- **Strike px control** in the toolbar (delta.html). Caps each strike's
+  vertical band height in CSS pixels: `fit` (full inter-strike slot, the
+  legacy look) or fixed values `2`–`12`. Fixed values produce a Bookmap-style
+  ladder where every strike reads as its own discrete level with black gaps
+  between, regardless of zoom level.
+- **Reduced default Gaussian kernel reach.** Sigma multiplier dropped from
+  `0.40 × rowHd` to `0.22 × rowHd`. Same-sign neighboring strikes no longer
+  merge into continuous blobs in `Additive` and `Max` blend modes.
+- **Kernel sigma now scales off the capped row height**, not the natural
+  inter-strike slot. A thin Strike px (e.g. `4`) gets a tiny kernel
+  automatically — Strike px and blend kernel stay coupled, so picking a
+  ladder thickness gives you matching blend behavior for free.
+- New default: Strike px = `4`. Existing users who prefer the old continuous
+  heat-field look can switch to `fit`.
+
 ## [0.2.1] — delta.html level-trace + time-axis fixes
 
 ### Level traces

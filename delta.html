@@ -330,6 +330,19 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   </div>
 
   <div class="ctrl">
+    <span class="lbl" style="color:#ff8840">Strike px</span>
+    <select id="sStrikePx" title="Cap each strike's vertical band height. 'fit' fills the full slot between strikes; numeric values give a Bookmap-style ladder with gaps.">
+      <option value="fit">fit</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4" selected>4</option>
+      <option value="6">6</option>
+      <option value="8">8</option>
+      <option value="12">12</option>
+    </select>
+  </div>
+
+  <div class="ctrl">
     <span class="lbl">TZ</span>
     <select id="sTZ" title="Time zone for x-axis, hover tooltip, and last-update stamp">
       <option value="local" selected>Local</option>
@@ -488,6 +501,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
     <h2>Col px</h2>
     <p>Pixel width of each snapshot column. Higher = larger cells, fewer snapshots on screen. Shift+scroll over the heatmap does the same thing live.</p>
+
+    <h2>Strike px</h2>
+    <p>Cap each strike's vertical band height in CSS pixels. Controls how cramped or spread-out the heatmap looks vertically.</p>
+    <dl>
+      <dt>fit</dt>
+      <dd>Each strike fills the full slot between itself and the next strike. The traditional view — continuous heat field, no gaps. Bands grow taller as you zoom in vertically.</dd>
+      <dt>2 / 3 / 4 / 6 / 8 / 12</dt>
+      <dd>Fixed band thickness regardless of zoom. Black space appears between strikes — a Bookmap-style ladder where every strike reads as its own discrete level. Smaller numbers = more separation.</dd>
+    </dl>
+    <div class="tip">The Gaussian blend kernel scales with this setting. A thin Strike px gets a tiny kernel, so even in <b>Additive</b> or <b>Max</b> blend mode, neighboring strikes won't bleed into each other.</div>
 
     <h2>Refresh</h2>
     <p>How often the browser polls the API. 1s is fine for State-tier data; lower-frequency if you want to reduce load.</p>
@@ -1147,9 +1170,20 @@ function renderHeat() {
   const yRange = yDomain.max - yDomain.min;
   const rowHd  = Math.max(1, (drawHd / yRange) * tick);
 
-  // Gaussian vertical kernel — FWHM ≈ rowHd, so strikes blend smoothly with neighbors.
-  // Peak-normalized (not area-normalized) so an isolated strike shows its native color at its center.
-  const sigma   = Math.max(0.7, rowHd * 0.40);
+  // Strike-px cap: limits the painted band to a fixed CSS-pixel height (Bookmap
+  // ladder look with gaps), or 'fit' to fill the full inter-strike slot. Capped
+  // at the natural slot so bands never overflow into a neighbor's territory.
+  const strikePxSel = document.getElementById('sStrikePx').value;
+  const effRowPxD = (strikePxSel === 'fit')
+    ? rowHd
+    : Math.max(1, Math.min(rowHd, parseFloat(strikePxSel) * dpr));
+
+  // Gaussian vertical kernel — sigma scales off the *effective* (capped) row
+  // height so a thin band gets a tiny kernel. Multiplier of 0.22 (was 0.40)
+  // shrinks reach so same-sign neighbors no longer merge into continuous blobs.
+  // Peak-normalized (not area-normalized) so an isolated strike shows its native
+  // color at its center.
+  const sigma   = Math.max(0.7, effRowPxD * 0.22);
   const kRadius = Math.max(1, Math.ceil(sigma * 2.5));
   const kernel  = new Float32Array(kRadius * 2 + 1);
   for (let i = 0; i <= kRadius; i++) {
@@ -1173,7 +1207,7 @@ function renderHeat() {
   //   'sum'  — additive Gaussian (soft glow, over-smooths sign-alternating neighbors)
   //   'max'  — winner-take-all (sign-preserving, each strike holds its territory)
   const blend    = document.getElementById('sBlend').value;
-  const halfRow  = rowHd / 2;
+  const halfRow  = effRowPxD / 2;
 
   for (let ci = startI; ci < endI; ci++) {
     const snap = snapshots[ci];
@@ -1669,7 +1703,7 @@ document.getElementById('btnLoad').addEventListener('click', () => {
   });
 })();
 
-['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend','sTZ'].forEach(id => {
+['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend','sTZ','sStrikePx'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     if (['sTicker','sExpiry','sGreek'].includes(id)) {
       snapshots = []; yDomain = { min: 0, max: 0 };

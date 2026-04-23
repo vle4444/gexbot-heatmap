@@ -35,6 +35,13 @@
 - **Palette** — color scheme. GEX (green/red) is the convention; the
   others are aesthetic alternatives.
 - **Col px** — column width in pixels. Shift+Scroll does the same live.
+- **Strike px** *(delta.html only)* — caps each strike's vertical band height
+  in CSS pixels. `fit` (legacy default) fills the full slot between strikes —
+  the continuous heat-field look. Numeric values (`2`–`12`) produce fixed
+  bands with black gaps between strikes — a Bookmap-style ladder where each
+  strike reads as a discrete level. The Gaussian blend kernel scales with this
+  setting, so even in `Additive` or `Max` blend mode, neighbors won't bleed
+  into each other when Strike px is small. Default: `4`.
 - **TZ** *(delta.html only)* — time zone for the x-axis, cursor hover tooltip,
   and last-update stamp. Always 24-hour (HH:MM). `Local` uses the browser's
   default; named zones (NY, Chicago, London, Berlin, Tokyo, HK, UTC) pin the
