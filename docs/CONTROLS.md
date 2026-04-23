@@ -35,6 +35,10 @@
 - **Palette** — color scheme. GEX (green/red) is the convention; the
   others are aesthetic alternatives.
 - **Col px** — column width in pixels. Shift+Scroll does the same live.
+- **TZ** *(delta.html only)* — time zone for the x-axis, cursor hover tooltip,
+  and last-update stamp. Always 24-hour (HH:MM). `Local` uses the browser's
+  default; named zones (NY, Chicago, London, Berlin, Tokyo, HK, UTC) pin the
+  display regardless of the machine's clock.
 - **LIVE** — toggle live polling on/off.
 - **RESET ZOOM** — unlock Y-axis auto-range and jump to live.
 - **CLEAR** — empty the snapshot buffer.
@@ -78,9 +82,12 @@
 - **ZG (yellow dashed)** — Zero Gamma line (only populated in GEX overlay mode;
   Greek endpoints don't return `zero_gamma`)
 
-Each is drawn as a per-snapshot trace, so when M+ jumps between strikes
-mid-session you see the jump in place, preserved forever in the historical
-buffer.
+Each is drawn as a per-snapshot **step function**: the line holds its y-value
+horizontally until the next column, then jumps vertically to the new level.
+This reflects the discrete nature of M+/M−/ZG — the level never slides
+through intermediate prices; it jumps between strikes. Segments break across
+gaps (missing values, or points outside the visible y-range) so you won't see
+long connecting lines across discontinuities when you scroll or zoom.
 
 ## index.html — history buttons
 
