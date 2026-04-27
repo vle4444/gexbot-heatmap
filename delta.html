@@ -248,7 +248,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <select id="sScale">
       <optgroup label="Unified scale — past repaints">
         <option value="window_1m">Window: last 1 min</option>
-        <option value="window_5m" selected>Window: last 5 min</option>
+        <option value="window_5m">Window: last 5 min</option>
         <option value="window_15m">Window: last 15 min</option>
         <option value="window_frame">Window: visible range</option>
       </optgroup>
@@ -259,7 +259,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       </optgroup>
       <optgroup label="Per-column — past frozen">
         <option value="snapshot_only">Snapshot only (self-normalize)</option>
-        <option value="cumulative">Cumulative (session anchored)</option>
+        <option value="cumulative" selected>Cumulative (session anchored)</option>
       </optgroup>
       <optgroup label="Experimental">
         <option value="ema">EMA (smoothed trailing, α=0.1)</option>
@@ -293,8 +293,8 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="ctrl">
     <span class="lbl">Palette</span>
     <select id="sPalette">
-      <option value="gex" selected>GEX ± (green/red)</option>
-      <option value="electric">Electric (cyan/magenta)</option>
+      <option value="gex">GEX ± (green/red)</option>
+      <option value="electric" selected>Electric (cyan/magenta)</option>
       <option value="solar">Solar (yellow/violet)</option>
       <option value="icefire">Ice/Fire (blue/orange)</option>
     </select>
@@ -312,9 +312,9 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="ctrl">
     <span class="lbl" style="color:#ff8840">Blend</span>
     <select id="sBlend">
-      <option value="hard">None (sharp)</option>
+      <option value="hard" selected>None (sharp)</option>
       <option value="sum">Additive</option>
-      <option value="max" selected>Max (sign-safe)</option>
+      <option value="max">Max (sign-safe)</option>
     </select>
   </div>
 
@@ -332,10 +332,10 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="ctrl">
     <span class="lbl" style="color:#ff8840">Strike px</span>
     <select id="sStrikePx" title="Cap each strike's vertical band height. 'fit' fills the full slot between strikes; numeric values give a Bookmap-style ladder with gaps.">
-      <option value="fit">fit</option>
+      <option value="fit" selected>fit</option>
       <option value="2">2</option>
       <option value="3">3</option>
-      <option value="4" selected>4</option>
+      <option value="4">4</option>
       <option value="6">6</option>
       <option value="8">8</option>
       <option value="12">12</option>
@@ -1642,17 +1642,23 @@ function renderProfile() {
   const rowH  = Math.max(1, (drawH / (yDomain.max - yDomain.min)) * tick);
   const mid   = Math.floor(W / 2);
 
+  // Slot-based geometry: each strike owns the integer pixel range between
+  // round(yMid ± rowH/2). Adjacent strikes' slots share exactly one boundary
+  // pixel, so by drawing h = (slotBot - slotTop) - 1 we both prevent overlap
+  // and leave a visible 1-px gutter — fixes the case where floor+ceil
+  // rounding caused two adjacent bars to share a row of pixels.
   for (const it of items) {
     const yv = yValue(it.price, sp);
     if (yv < yDomain.min || yv > yDomain.max) continue;
-    const yMid = yToPx(yv, H);
-    const y   = Math.floor(yMid - rowH / 2);
-    const h2  = Math.max(1, Math.ceil(rowH));
-    const bW  = Math.round(Math.abs(it.v / barMax) * (mid - 2));
+    const yMid    = yToPx(yv, H);
+    const slotTop = Math.round(yMid - rowH / 2);
+    const slotBot = Math.round(yMid + rowH / 2);
+    const h2      = Math.max(1, slotBot - slotTop - 1);
+    const bW      = Math.round(Math.abs(it.v / barMax) * (mid - 2));
     const [r,g,b] = getColorRGBT(_toT(it.v, idx));
     profCX.fillStyle = `rgb(${r},${g},${b})`;
-    if (it.v >= 0) profCX.fillRect(mid, y, bW, h2);
-    else           profCX.fillRect(mid - bW, y, bW, h2);
+    if (it.v >= 0) profCX.fillRect(mid, slotTop, bW, h2);
+    else           profCX.fillRect(mid - bW, slotTop, bW, h2);
   }
 
   profCX.fillStyle = '#606060'; profCX.fillRect(mid, 0, 1, drawH);
