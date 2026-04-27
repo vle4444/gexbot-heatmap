@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.3.0] — MaxCh overlay, comprehensive docs, default config refresh
+
+### MaxCh overlay (new — delta.html)
+- New **MaxCh** dropdown in the toolbar overlays strikes absorbing the most
+  GEX-imbalance flow at each snapshot. Sourced from `/state/{period}/maxchange`,
+  fetched in parallel with the main `/state` call so the overlay works in
+  every overlay mode (Greek endpoints included — they don't return
+  `max_priors` of their own).
+- **`agg` mode (recommended).** For each snapshot, all six lookback buckets
+  (current / 1m / 5m / 10m / 15m / 30m) are grouped by strike. A strike that
+  fires in N buckets gets a glyph whose radius scales with N — multi-bucket
+  agreement signals *persistent* flow across timescales, single-bucket hits
+  signal transient noise. Strikes below 10% of the visible-window max
+  magnitude are filtered out so the layer doesn't drown in low-conviction
+  prints. Opacity scales with magnitude (sqrt for visibility floor).
+- **Single-bucket modes** (`cur` / `1m` / `5m` / `10m` / `15m` / `30m`)
+  preserved for analytical use — show only that bucket's winning strike per
+  snapshot, sized by magnitude.
+- Glyph color = sign of the change (green = call-side accumulation, red =
+  put-side). Dark halo under each glyph for contrast against same-hue
+  heatmap bars. Right-edge label identifies the active mode.
+- `maxPriors` captured into the per-snapshot `meta` so SAVE/LOAD round-trips
+  preserve the overlay.
+
+### Defaults (delta.html)
+Updated to the working day-to-day config after live testing:
+- Color scale: `Window: last 5 min` → **`Cumulative (session anchored)`**
+- Palette: `GEX ± (green/red)` → **`Electric (cyan/magenta)`**
+- Blend: `Max (sign-safe)` → **`None (sharp)`**
+- Strike px: `4` → **`fit`**
+
+### Snapshot panel (delta.html)
+- **Bar overlap fix.** The right-side SNAPSHOT bars used
+  `floor(yMid − rowH/2)` paired with `ceil(rowH)` for geometry, which under
+  unfavorable fractional offsets caused two adjacent bars to share a single
+  pixel of overlap (bars visually merged at strike boundaries). Replaced
+  with integer slot boundaries — `slotTop = round(yMid − rowH/2)`,
+  `slotBot = round(yMid + rowH/2)`, `h = slotBot − slotTop − 1` — so adjacent
+  bars never overlap and always have a guaranteed 1-px visual gutter.
+
+### Level traces (delta.html)
+- Final widths tuned against live data: M+/M−/ZG halo `3.5 → 4.5` px,
+  colored stroke `2.0 → 2.5` px, halo opacity `0.75 → 0.85`. Visible against
+  same-hue heatmap bars without dominating the chart.
+
+### Documentation
+- **`docs/GEXBOT-API.md`** — comprehensive API reference. Covers all live
+  endpoints (Tickers, Classic GEX chain / majors / max-change, State GEX
+  profile / majors / max-change, State Greeks) plus the historical Quant-tier
+  endpoint, auth, hosts, subscription tiers, aggregation-period semantics
+  (`zero` / `one` / `full`), polling guidance, common gotchas (e.g.
+  `gexbot_custom_` is part of the token, not a path segment; State-mode `_oi`
+  fields are always 0; presigned S3 URLs must be fetched without your bearer
+  token), the local server proxy pattern, and a minimal Node client recipe.
+  Pairs the upstream spec with project-internal knowledge from `server.js`
+  and `CLAUDE.md`.
+- **`docs/CONCEPTS.md`** — options-exposure metrics theory reference.
+  Foundations (OI vs. volume vs. orderflow classification), the four Greek
+  exposures (DEX, GEX, vanna, charm) with formulas and units, profile views
+  (Classic, GEX profile, DEX ladder, convexity ladder), orderflow
+  time-series views, aggregate metrics (net GEX, net convexity, net
+  vanna/charm), and a regimes / pinning reading guide. Flags the project's
+  `−vanna ex` convention deviation explicitly and includes a glossary +
+  references section.
+
 ## [0.2.3] — M+/M− consistency, more Strike-px values, no vertical connectors, punchier traces
 
 ### Level labels
