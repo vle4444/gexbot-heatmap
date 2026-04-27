@@ -348,6 +348,19 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   </div>
 
   <div class="ctrl">
+    <span class="lbl" style="color:#a0d8ff">MaxCh</span>
+    <select id="sMaxCh" title="Overlay strikes with the largest GEX (imbalance) change. Pick a lookback bucket — glyph color = sign (green positive, red negative), glyph size = magnitude normalized over the visible window.">
+      <option value="off" selected>off</option>
+      <option value="current">cur</option>
+      <option value="1">1m</option>
+      <option value="5">5m</option>
+      <option value="10">10m</option>
+      <option value="15">15m</option>
+      <option value="30">30m</option>
+    </select>
+  </div>
+
+  <div class="ctrl">
     <span class="lbl">TZ</span>
     <select id="sTZ" title="Time zone for x-axis, hover tooltip, and last-update stamp">
       <option value="local" selected>Local</option>
@@ -537,6 +550,14 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </dl>
     <p>Each is drawn as a horizontal trace across the visible columns. When the level jumps between strikes mid-session, the run at the old level ends and a new one starts at the new level — there's no vertical connector drawn through the intermediate prices.</p>
 
+    <h2>MaxCh overlay</h2>
+    <p>The <b>MaxCh</b> selector overlays the strike with the largest GEX-imbalance change at each snapshot, sourced from the API's <code>max_priors</code> field. Pick a lookback bucket: <b>cur</b> (most recent calculation cycle), <b>1m / 5m / 10m / 15m / 30m</b>.</p>
+    <dl>
+      <dt>Glyph color</dt><dd>Green = positive change (call-side accumulation), red = negative (put-side).</dd>
+      <dt>Glyph size</dt><dd>Scaled to the magnitude of the change, normalized over the currently visible window. The biggest change in view is the biggest dot; everything else is sized relative to it.</dd>
+    </dl>
+    <p>Greek overlays do not return <code>max_priors</code>, so the MaxCh layer is empty when a Greek is selected.</p>
+
     <h2>Keyboard</h2>
     <dl>
       <dt>← / →</dt><dd>Scroll history by 5 snapshots.</dd>
@@ -662,6 +683,10 @@ function ingest(data, greek) {
       zeroG:  data.zero_gamma  ?? '—',
       majPos: majors.majPos,
       majNeg: majors.majNeg,
+      // max_priors: 6 entries [strike, gex_change], in order:
+      // [0]=current, [1]=1m, [2]=5m, [3]=10m, [4]=15m, [5]=30m.
+      // Greek endpoints don't return this, so it's only captured here.
+      maxPriors: Array.isArray(data.max_priors) ? data.max_priors : null,
     };
   } else {
     for (const it of (data.mini_contracts || []))
@@ -1399,6 +1424,63 @@ function renderHeat() {
   drawLevelTrace(s => s.meta.majPos, '#30ff70', 'M+', []);
   drawLevelTrace(s => s.meta.majNeg, '#ff4428', 'M−', []);
 
+  // ── Max-change glyphs ── per-snapshot strike with the largest GEX-imbalance
+  // change for the user-selected lookback bucket. max_priors order:
+  // [0]=current, [1]=1m, [2]=5m, [3]=10m, [4]=15m, [5]=30m.
+  // Magnitude is normalized over the visible window so the relative size
+  // stays meaningful regardless of which bucket is selected.
+  {
+    const maxChSel = document.getElementById('sMaxCh').value;
+    const bucketIdx = { current:0, '1':1, '5':2, '10':3, '15':4, '30':5 }[maxChSel];
+    if (bucketIdx !== undefined) {
+      const pts = [];
+      let maxMag = 0;
+      for (let ci = startI; ci < endI; ci++) {
+        const mp = snapshots[ci].meta.maxPriors;
+        if (!mp || !mp[bucketIdx]) continue;
+        const strike = parseFloat(mp[bucketIdx][0]);
+        const val    = parseFloat(mp[bucketIdx][1]);
+        if (!isFinite(strike) || !isFinite(val) || strike <= 0 || val === 0) continue;
+        const spot = snapshots[ci].meta.spot || 0;
+        const yv = yValue(strike, spot);
+        if (yv < yDomain.min || yv > yDomain.max) continue;
+        pts.push({
+          x: effPAX + (ci - startI) * effColW + effColW / 2,
+          y: yToPx(yv, H),
+          val,
+        });
+        const m = Math.abs(val);
+        if (m > maxMag) maxMag = m;
+      }
+      if (pts.length && maxMag > 0) {
+        heatCX.save();
+        for (const p of pts) {
+          // sqrt scaling so small changes are still visible without dwarfing big ones
+          const norm = Math.abs(p.val) / maxMag;
+          const r    = 2.2 + 4.5 * Math.sqrt(norm);
+          // Dark halo first for contrast over same-hue heatmap bars
+          heatCX.beginPath();
+          heatCX.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
+          heatCX.fillStyle = 'rgba(0,0,0,0.85)';
+          heatCX.fill();
+          // Colored core
+          heatCX.beginPath();
+          heatCX.arc(p.x, p.y, r, 0, Math.PI * 2);
+          heatCX.fillStyle = p.val >= 0 ? '#30ff70' : '#ff4428';
+          heatCX.fill();
+        }
+        // Right-edge label so the user knows what bucket is active
+        const last = pts[pts.length - 1];
+        heatCX.fillStyle = '#a0d8ff';
+        heatCX.font      = 'bold 11px Courier New';
+        heatCX.textAlign = 'right';
+        const labelTxt = maxChSel === 'current' ? 'ΔMaxCh cur' : `ΔMaxCh ${maxChSel}m`;
+        heatCX.fillText(labelTxt, W - LGAP - 4, last.y + 14);
+        heatCX.restore();
+      }
+    }
+  }
+
   // Spot: in abs mode draw trace across time; in relative modes draw y=0 reference
   if (yMode() === 'abs') {
     // Animated price trace
@@ -1759,7 +1841,7 @@ document.getElementById('btnLoad').addEventListener('click', () => {
   });
 })();
 
-['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend','sTZ','sStrikePx'].forEach(id => {
+['sTicker','sExpiry','sGreek','sRefresh','sPalette','sGamma','sColW','sMode','sLookback','sYAxis','sScale','sBlend','sTZ','sStrikePx','sMaxCh'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     if (['sTicker','sExpiry','sGreek'].includes(id)) {
       snapshots = []; yDomain = { min: 0, max: 0 };
