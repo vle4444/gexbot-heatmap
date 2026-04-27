@@ -1454,15 +1454,22 @@ function renderHeat() {
     const maxChSel = document.getElementById('sMaxCh').value;
     if (maxChSel === 'agg') {
       // First pass: aggregate per snapshot and find global magnitude reference.
-      // Sign rule is majority vote over the buckets that fired at this strike,
-      // NOT the sign of the max-magnitude bucket. The max-magnitude bucket is
-      // almost always the longest window (30m), which biases the displayed
-      // sign toward what flow did over the whole lookback rather than what
-      // it's doing right now — leading to red dots on a lightening wall and
-      // green dots on a darkening one. Counting bucket-sign votes gives a
-      // truer "where is consensus" reading. Ties (e.g. 1 pos vs 1 neg) fall
-      // back to the sign of the max-magnitude bucket so we still pick *some*
-      // direction.
+      //
+      // Sign convention: the API's max_priors / maxchange `value` field comes
+      // back with a sign OPPOSITE to "direction of imbalance change at the
+      // strike". Verified empirically against live data: walls steadily
+      // growing more negative produce positive raw values (the API treats
+      // put-side accumulation as positive); walls lightening from negative
+      // produce negative raw values. We negate raw to align with intuition:
+      // positive `dir` here means imbalance ROSE (call-side accumulation,
+      // green dot), negative means imbalance FELL (put-side accumulation,
+      // red dot). The doc's literal reading is ambiguous, but the inverted-
+      // sign interpretation is the only one consistent with screenshots
+      // showing red on rising walls AND green on falling walls.
+      //
+      // Sign rule is majority vote over the firing buckets (not the sign of
+      // the max-magnitude bucket — that biases toward 30m flow rather than
+      // what's happening right now). Ties fall back to max-magnitude sign.
       const perSnap = [];
       let globalMaxMag = 0;
       for (let ci = startI; ci < endI; ci++) {
@@ -1473,17 +1480,18 @@ function renderHeat() {
           const entry = mp[b];
           if (!entry) continue;
           const strike = parseFloat(entry[0]);
-          const val    = parseFloat(entry[1]);
-          if (!isFinite(strike) || !isFinite(val) || strike <= 0 || val === 0) continue;
+          const raw    = parseFloat(entry[1]);
+          if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
+          const dir = -raw;  // see sign convention note above
           const cur = agg.get(strike) || {
             count: 0, maxAbs: 0, posVotes: 0, negVotes: 0, tieBreak: 0,
           };
           cur.count++;
-          if (val >= 0) cur.posVotes++; else cur.negVotes++;
-          const mag = Math.abs(val);
+          if (dir >= 0) cur.posVotes++; else cur.negVotes++;
+          const mag = Math.abs(dir);
           if (mag > cur.maxAbs) {
             cur.maxAbs   = mag;
-            cur.tieBreak = val >= 0 ? 1 : -1;
+            cur.tieBreak = dir >= 0 ? 1 : -1;
           }
           agg.set(strike, cur);
           if (mag > globalMaxMag) globalMaxMag = mag;
@@ -1537,17 +1545,20 @@ function renderHeat() {
           const mp = snapshots[ci].meta.maxPriors;
           if (!mp || !mp[bucketIdx]) continue;
           const strike = parseFloat(mp[bucketIdx][0]);
-          const val    = parseFloat(mp[bucketIdx][1]);
-          if (!isFinite(strike) || !isFinite(val) || strike <= 0 || val === 0) continue;
+          const raw    = parseFloat(mp[bucketIdx][1]);
+          if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
+          // See sign-convention note in the agg branch above: API returns
+          // raw with inverted sign relative to direction of imbalance change.
+          const dir = -raw;
           const spot = snapshots[ci].meta.spot || 0;
           const yv = yValue(strike, spot);
           if (yv < yDomain.min || yv > yDomain.max) continue;
           pts.push({
             x: effPAX + (ci - startI) * effColW + effColW / 2,
             y: yToPx(yv, H),
-            val,
+            val: dir,
           });
-          const m = Math.abs(val);
+          const m = Math.abs(dir);
           if (m > maxMag) maxMag = m;
         }
         if (pts.length && maxMag > 0) {
