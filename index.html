@@ -362,6 +362,25 @@ async function fetchData() {
 // ═══════════════════════════════════════════════════════
 //  INGEST
 // ═══════════════════════════════════════════════════════
+// Derive M+/M- from the strikes we actually render so the labels always
+// sit on the brightest green / brightest red bar. The API's precomputed
+// majors (major_pos_vol / major_neg_vol / major_positive / major_negative)
+// can drift from strikes[] in edge cases; computing locally eliminates
+// the mismatch by construction.
+function computeMajors(strikes) {
+  let mp = null, mn = null;
+  for (const st of strikes) {
+    const v = st.vol;
+    if (!isFinite(v) || v === 0) continue;
+    if (v > 0 && (!mp || v > mp.vol)) mp = st;
+    if (v < 0 && (!mn || v < mn.vol)) mn = st;
+  }
+  return {
+    majPos: mp ? mp.price : '—',
+    majNeg: mn ? mn.price : '—',
+  };
+}
+
 function ingest(data, greek) {
   const ts   = Date.now();
   const snap = { ts, strikes: [], meta: {} };
@@ -372,12 +391,13 @@ function ingest(data, greek) {
       snap.strikes.push({ price: +item[0], vol: +item[1] });
     }
     const sp = parseFloat(data.spot);
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:     isNaN(sp) ? 0 : sp,
       netGex:   data.sum_gex_vol           ?? '—',
       zeroG:    data.zero_gamma            ?? '—',
-      majPos:   data.major_pos_vol         ?? '—',
-      majNeg:   data.major_neg_vol         ?? '—',
+      majPos:   majors.majPos,
+      majNeg:   majors.majNeg,
       deltaRev: data.delta_risk_reversal   ?? '—',
     };
   } else {
@@ -386,12 +406,13 @@ function ingest(data, greek) {
       snap.strikes.push({ price: +item[0], vol: +item[3] });
     }
     const sp = parseFloat(data.spot);
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:     isNaN(sp) ? 0 : sp,
       netGex:   '—',
       zeroG:    '—',
-      majPos:   data.major_positive ?? '—',
-      majNeg:   data.major_negative ?? '—',
+      majPos:   majors.majPos,
+      majNeg:   majors.majNeg,
       deltaRev: '—',
     };
   }
@@ -869,22 +890,24 @@ function normalizeSnap(obj, greek) {
   if (greek === 'none') {
     const arr = obj.strikes || [];
     for (const it of arr) snap.strikes.push({ price: +it[0], vol: +it[1] });
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:     parseFloat(obj.spot) || 0,
       netGex:   obj.sum_gex_vol ?? '—',
       zeroG:    obj.zero_gamma  ?? '—',
-      majPos:   obj.major_pos_vol ?? '—',
-      majNeg:   obj.major_neg_vol ?? '—',
+      majPos:   majors.majPos,
+      majNeg:   majors.majNeg,
       deltaRev: obj.delta_risk_reversal ?? '—',
     };
   } else {
     const arr = obj.mini_contracts || [];
     for (const it of arr) snap.strikes.push({ price: +it[0], vol: +it[3] });
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:     parseFloat(obj.spot) || 0,
       netGex:   '—', zeroG: '—',
-      majPos:   obj.major_positive ?? '—',
-      majNeg:   obj.major_negative ?? '—',
+      majPos:   majors.majPos,
+      majNeg:   majors.majNeg,
       deltaRev: '—',
     };
   }

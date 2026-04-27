@@ -339,6 +339,11 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="6">6</option>
       <option value="8">8</option>
       <option value="12">12</option>
+      <option value="16">16</option>
+      <option value="20">20</option>
+      <option value="24">24</option>
+      <option value="32">32</option>
+      <option value="48">48</option>
     </select>
   </div>
 
@@ -530,7 +535,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>M− (red)</dt><dd>Strike with the largest negative GEX imbalance.</dd>
       <dt>ZG (yellow dashed)</dt><dd>Zero-gamma line. Only populated in <b>GEX</b> overlay mode (Greek overlays do not return zero_gamma).</dd>
     </dl>
-    <p>Each is drawn as a trace across the visible columns — when M+ jumps between strikes mid-session, you see the jump in place, not a repainted horizontal line.</p>
+    <p>Each is drawn as a horizontal trace across the visible columns. When the level jumps between strikes mid-session, the run at the old level ends and a new one starts at the new level — there's no vertical connector drawn through the intermediate prices.</p>
 
     <h2>Keyboard</h2>
     <dl>
@@ -623,6 +628,25 @@ async function fetchData() {
   }
 }
 
+// Derive M+/M- from the strikes we actually render so the labels always
+// sit on the brightest green / brightest red bar. The API's precomputed
+// majors (major_pos_vol / major_neg_vol / major_positive / major_negative)
+// can drift from strikes[] in edge cases; computing locally eliminates
+// the mismatch by construction.
+function computeMajors(strikes) {
+  let mp = null, mn = null;
+  for (const st of strikes) {
+    const v = st.vol;
+    if (!isFinite(v) || v === 0) continue;
+    if (v > 0 && (!mp || v > mp.vol)) mp = st;
+    if (v < 0 && (!mn || v < mn.vol)) mn = st;
+  }
+  return {
+    majPos: mp ? mp.price : '—',
+    majNeg: mn ? mn.price : '—',
+  };
+}
+
 function ingest(data, greek) {
   const ts   = Date.now();
   const snap = { ts, strikes: [], meta: {} };
@@ -631,22 +655,24 @@ function ingest(data, greek) {
     for (const it of (data.strikes || []))
       snap.strikes.push({ price: +it[0], vol: +it[1] });
     const sp = parseFloat(data.spot);
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:   isNaN(sp) ? 0 : sp,
       netGex: data.sum_gex_vol ?? '—',
       zeroG:  data.zero_gamma  ?? '—',
-      majPos: data.major_pos_vol ?? '—',
-      majNeg: data.major_neg_vol ?? '—',
+      majPos: majors.majPos,
+      majNeg: majors.majNeg,
     };
   } else {
     for (const it of (data.mini_contracts || []))
       snap.strikes.push({ price: +it[0], vol: +it[3] });
     const sp = parseFloat(data.spot);
+    const majors = computeMajors(snap.strikes);
     snap.meta = {
       spot:   isNaN(sp) ? 0 : sp,
       netGex: '—', zeroG: '—',
-      majPos: data.major_positive ?? '—',
-      majNeg: data.major_negative ?? '—',
+      majPos: majors.majPos,
+      majNeg: majors.majNeg,
     };
   }
 
@@ -1285,12 +1311,13 @@ function renderHeat() {
   const latestSpot = latest.meta.spot || 0;
 
   // ── Level traces — historical M+, M−, ZG drawn per-snapshot so each value
-  //    stays locked to its original column. Rendered as a step function
-  //    (horizontal + vertical segments only) because these are discrete strike
-  //    levels — the level never slides through intermediate prices, it jumps
-  //    between strikes. Segments break across gaps (missing/invalid values or
-  //    points outside the visible y-range) so we don't draw connecting lines
-  //    across discontinuities.
+  //    stays locked to its original column. Rendered as horizontal runs: each
+  //    stretch of consecutive snapshots at the same y is a single horizontal
+  //    line. Adjacent runs at different y meet at the midpoint between their
+  //    transition columns — no vertical connector is drawn, since the level
+  //    never actually slides through intermediate prices. Segments still break
+  //    across gaps (missing/invalid values or points outside the visible
+  //    y-range) so we don't draw connecting lines across discontinuities.
   function drawLevelTrace(getValue, color, label, dash) {
     const segments = [];
     let cur = [];
@@ -1311,20 +1338,49 @@ function renderHeat() {
     if (!segments.length) return;
 
     heatCX.save();
-    heatCX.globalAlpha = 0.85;
-    heatCX.strokeStyle = color;
-    heatCX.lineWidth   = 1.25;
     heatCX.setLineDash(dash || []);
+    heatCX.lineCap = 'butt';
 
-    for (const seg of segments) {
-      heatCX.beginPath();
-      heatCX.moveTo(seg[0].x, seg[0].y);
-      for (let i = 1; i < seg.length; i++) {
-        // step: hold previous y until the new column, then jump vertically
-        heatCX.lineTo(seg[i].x, seg[i - 1].y);
-        heatCX.lineTo(seg[i].x, seg[i].y);
+    // Render every segment twice: a wider dark halo underneath, then the
+    // color on top. The halo gives the line contrast when it sits over
+    // a same-hue bar (red M- on a red bar, green M+ on a green bar),
+    // which was the main reason it was hard to see before.
+    const passes = [
+      { stroke: 'rgba(0,0,0,0.75)', width: 3.5 },
+      { stroke: color,              width: 2.0 },
+    ];
+
+    for (const pass of passes) {
+      heatCX.strokeStyle = pass.stroke;
+      heatCX.lineWidth   = pass.width;
+      heatCX.globalAlpha = 1;
+
+      for (const seg of segments) {
+        // Draw consecutive same-y snapshots as a single horizontal run; adjacent
+        // runs at different y meet at the midpoint between the two transition
+        // columns, so there is NO vertical connector when the level changes.
+        heatCX.beginPath();
+        let runStart = 0;
+        for (let i = 1; i <= seg.length; i++) {
+          if (i === seg.length || seg[i].y !== seg[runStart].y) {
+            const y  = seg[runStart].y;
+            // Left edge: start at first point of the run, or at the midpoint
+            // back to the previous run if there is one.
+            const xL = runStart > 0
+              ? (seg[runStart - 1].x + seg[runStart].x) / 2
+              : seg[runStart].x;
+            // Right edge: end at last point of the run, or at the midpoint
+            // forward to the next run if there is one.
+            const xR = i < seg.length
+              ? (seg[i - 1].x + seg[i].x) / 2
+              : seg[i - 1].x;
+            heatCX.moveTo(xL, y);
+            heatCX.lineTo(xR, y);
+            runStart = i;
+          }
+        }
+        heatCX.stroke();
       }
-      heatCX.stroke();
     }
 
     // Right-edge label at the rightmost visible point's y

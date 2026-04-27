@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.3] — M+/M− consistency, more Strike-px values, no vertical connectors, punchier traces
+
+### Level labels
+- **M+ and M− now derived locally** from the same `strikes[]` array the
+  heatmap renders, via a new `computeMajors()` helper. Previously the labels
+  read `data.major_pos_vol` / `data.major_neg_vol` (and `major_positive` /
+  `major_negative` for Greek overlays) directly from the upstream payload,
+  which could drift from the per-strike values in edge cases and put the M+
+  label on a red bar (and M− on a green one). Computing locally guarantees
+  the label sits on the brightest green / brightest red strike by construction.
+- Applied in both `delta.html` (live ingest) and `index.html` (live ingest
+  *and* historical `normalizeSnap` path, so LOAD DATE behaves identically).
+
+### Level traces (delta.html)
+- **Horizontal-only rendering** for M+, M−, ZG. The previous step function
+  drew a horizontal segment at the old y and then a vertical connector up or
+  down to the new y whenever the level jumped between strikes. The vertical
+  was visually misleading — it suggested the level passed through every
+  intermediate price, which it never did. Now each stretch of consecutive
+  snapshots at the same y is drawn as a single horizontal line; adjacent
+  runs at different y meet at the midpoint between their transition columns,
+  leaving a clean horizontal-to-horizontal handoff with no vertical connector.
+- **Punchier line rendering.** Width 1.25 → 2.0 px, opacity 0.85 → 1.0, plus
+  a 3.5px black halo pass under each colored line so M+ stays visible when
+  it sits on a bright green bar (same for M− on red, ZG on anything bright).
+  Without the halo, a same-hue line was effectively invisible.
+
+### Controls (delta.html)
+- **Strike px dropdown** expanded above 12: added `16`, `20`, `24`, `32`,
+  `48`. Effective row height is still capped at the natural inter-strike
+  slot (`rowHd`) so bars can't overflow into neighbors; at low Y-zoom the
+  higher values silently clamp to `rowHd`. To make a selection strictly
+  authoritative, drop the `Math.min(rowHd, …)` in the `effRowPxD` expression.
+
 ## [0.2.2] — vertical resolution: Strike-px + reduced default kernel
 
 ### Rendering
@@ -77,23 +111,3 @@
 - **SAVE** button — export current buffer as JSON
 - **LOAD** button — restore a saved session (pauses live polling, switches
   ticker/expiry/overlay to match the file)
-- **? HELP** button — full in-page control reference
-
-### Defaults
-- Measure: Raw GEX
-- Y-axis: Absolute price
-- Gamma: Linear
-- Blend: Max (sign-safe)
-- Color scale: Window: last 5 min (matches previous default's scope)
-
-### Documentation
-- `docs/COLOR_SCALES.md` — per-mode explanation with decision matrix
-- `docs/CONTROLS.md` — full keyboard/mouse/toolbar reference
-- `README.md` — quick start, file layout, subscription requirements
-
-## [0.1.0] — initial working version
-- Classic GEX heatmap (`index.html`)
-- Early delta heatmap (`delta.html`) with offset Y-axis and rolling color scales
-- Dependency-free Node server with CORS proxy and historical pre-signed-URL
-  fetch handling
-- Standalone recorder (`recorder.js`) for continuous JSONL capture
