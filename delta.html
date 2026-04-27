@@ -633,16 +633,24 @@ async function fetchData() {
     const ge = expiry === 'full' ? 'zero' : expiry;
     endpoint = `${greek}_${ge}`;
   }
-  const url = `${BASE_URL}/${ticker}/state/${endpoint}`;
+  const url   = `${BASE_URL}/${ticker}/state/${endpoint}`;
+  // maxchange uses the user's chosen expiry directly; unlike Greeks it has a
+  // 'full' variant. We fetch it in parallel so MaxCh works in every overlay
+  // mode (Greek endpoints don't return max_priors).
+  const mcUrl = `${BASE_URL}/${ticker}/state/${expiry}/maxchange`;
 
   try {
-    const res = await fetch(url, {
-      headers: {
-        'Accept': 'application/json' }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
-    const data = await res.json();
-    ingest(data, greek);
+    const [mainRes, mcRes] = await Promise.all([
+      fetch(url,   { headers: { 'Accept': 'application/json' } }),
+      fetch(mcUrl, { headers: { 'Accept': 'application/json' } }).catch(() => null),
+    ]);
+    if (!mainRes.ok) throw new Error(`HTTP ${mainRes.status} — ${mainRes.statusText}`);
+    const data = await mainRes.json();
+    let mcData = null;
+    if (mcRes && mcRes.ok) {
+      try { mcData = await mcRes.json(); } catch { /* maxchange is optional */ }
+    }
+    ingest(data, greek, mcData);
     hideOverlays();
   } catch (e) {
     showErr(e.message);
@@ -668,9 +676,17 @@ function computeMajors(strikes) {
   };
 }
 
-function ingest(data, greek) {
+function ingest(data, greek, mcData) {
   const ts   = Date.now();
   const snap = { ts, strikes: [], meta: {} };
+
+  // /maxchange returns named keys (current/one/five/ten/fifteen/thirty);
+  // we flatten to the 6-element array our renderer already expects so
+  // bucket index 0..5 maps to current, 1m, 5m, 10m, 15m, 30m.
+  const mcArr = mcData
+    ? ['current','one','five','ten','fifteen','thirty'].map(k =>
+        Array.isArray(mcData[k]) ? mcData[k] : null)
+    : null;
 
   if (greek === 'none') {
     for (const it of (data.strikes || []))
@@ -683,10 +699,7 @@ function ingest(data, greek) {
       zeroG:  data.zero_gamma  ?? '—',
       majPos: majors.majPos,
       majNeg: majors.majNeg,
-      // max_priors: 6 entries [strike, gex_change], in order:
-      // [0]=current, [1]=1m, [2]=5m, [3]=10m, [4]=15m, [5]=30m.
-      // Greek endpoints don't return this, so it's only captured here.
-      maxPriors: Array.isArray(data.max_priors) ? data.max_priors : null,
+      maxPriors: mcArr,
     };
   } else {
     for (const it of (data.mini_contracts || []))
@@ -698,6 +711,7 @@ function ingest(data, greek) {
       netGex: '—', zeroG: '—',
       majPos: majors.majPos,
       majNeg: majors.majNeg,
+      maxPriors: mcArr,
     };
   }
 
@@ -1371,8 +1385,8 @@ function renderHeat() {
     // a same-hue bar (red M- on a red bar, green M+ on a green bar),
     // which was the main reason it was hard to see before.
     const passes = [
-      { stroke: 'rgba(0,0,0,0.85)', width: 5.5 },
-      { stroke: color,              width: 3.0 },
+      { stroke: 'rgba(0,0,0,0.85)', width: 4.5 },
+      { stroke: color,              width: 2.5 },
     ];
 
     for (const pass of passes) {
