@@ -554,7 +554,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <h2>MaxCh overlay</h2>
     <p>The <b>MaxCh</b> selector overlays strikes that are absorbing the most GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included).</p>
     <dl>
-      <dt>agg <span style="color:#9aa">— recommended</span></dt><dd>For each snapshot, all six lookback buckets (current / 1m / 5m / 10m / 15m / 30m) are grouped by strike. A strike that fires in N buckets gets a glyph sized by N — multi-bucket agreement means flow is <i>persistent</i> across timescales, not a single-cycle blip. Strikes below 10% of the visible-window max magnitude are filtered out so the layer doesn't drown in noise. Glyph opacity scales with magnitude; color = sign (green positive, red negative).</dd>
+      <dt>agg <span style="color:#9aa">— recommended</span></dt><dd>For each snapshot, all six lookback buckets (current / 1m / 5m / 10m / 15m / 30m) are grouped by strike. A strike that fires in N buckets gets a glyph sized by N — multi-bucket agreement means flow is <i>persistent</i> across timescales, not a single-cycle blip. Strikes below 10% of the visible-window max magnitude are filtered out so the layer doesn't drown in noise. Glyph opacity scales with magnitude. <b>Sign = majority vote across the firing buckets</b> (ties broken by the max-magnitude bucket) so the displayed color reflects consensus across timescales rather than just whichever window had the biggest absolute change.</dd>
       <dt>cur / 1m / 5m / 10m / 15m / 30m</dt><dd>Single-bucket mode: only that bucket's winning strike per snapshot, sized by magnitude. Useful for inspecting one timescale at a time. Noisier than <b>agg</b> on its own.</dd>
     </dl>
     <p><b>Reading <i>agg</i>:</b> a tight cluster of large glyphs at one strike across consecutive snapshots = real, sustained flow. Scattered single-bucket glyphs jumping strike-to-strike = transient noise. Glyphs that line up vertically with the brightest heatmap bands are the "where the action is" strikes worth watching.</p>
@@ -1454,6 +1454,15 @@ function renderHeat() {
     const maxChSel = document.getElementById('sMaxCh').value;
     if (maxChSel === 'agg') {
       // First pass: aggregate per snapshot and find global magnitude reference.
+      // Sign rule is majority vote over the buckets that fired at this strike,
+      // NOT the sign of the max-magnitude bucket. The max-magnitude bucket is
+      // almost always the longest window (30m), which biases the displayed
+      // sign toward what flow did over the whole lookback rather than what
+      // it's doing right now — leading to red dots on a lightening wall and
+      // green dots on a darkening one. Counting bucket-sign votes gives a
+      // truer "where is consensus" reading. Ties (e.g. 1 pos vs 1 neg) fall
+      // back to the sign of the max-magnitude bucket so we still pick *some*
+      // direction.
       const perSnap = [];
       let globalMaxMag = 0;
       for (let ci = startI; ci < endI; ci++) {
@@ -1466,15 +1475,24 @@ function renderHeat() {
           const strike = parseFloat(entry[0]);
           const val    = parseFloat(entry[1]);
           if (!isFinite(strike) || !isFinite(val) || strike <= 0 || val === 0) continue;
-          const cur = agg.get(strike) || { count: 0, maxAbs: 0, sign: 0 };
+          const cur = agg.get(strike) || {
+            count: 0, maxAbs: 0, posVotes: 0, negVotes: 0, tieBreak: 0,
+          };
           cur.count++;
+          if (val >= 0) cur.posVotes++; else cur.negVotes++;
           const mag = Math.abs(val);
           if (mag > cur.maxAbs) {
-            cur.maxAbs = mag;
-            cur.sign   = val >= 0 ? 1 : -1;
+            cur.maxAbs   = mag;
+            cur.tieBreak = val >= 0 ? 1 : -1;
           }
           agg.set(strike, cur);
           if (mag > globalMaxMag) globalMaxMag = mag;
+        }
+        // Resolve sign: majority vote, ties broken by max-magnitude bucket.
+        for (const info of agg.values()) {
+          info.sign = info.posVotes > info.negVotes ?  1
+                    : info.negVotes > info.posVotes ? -1
+                    : info.tieBreak;
         }
         if (agg.size) perSnap.push({ ci, agg });
       }
