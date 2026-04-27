@@ -1,6 +1,6 @@
 # GEX Heatmap Project — Handover
 
-_Last updated: 2026-04-24 · corresponds to `v0.2.3`_
+_Last updated: 2026-04-27 · corresponds to `v0.3.x`_
 
 ## What this project is
 
@@ -49,7 +49,7 @@ CHANGELOG.md
 - `delta.html` — State subscription (uses `/state/...`)
 - Historical (`LOAD DATE`, `+ PREPEND` on classic) — **Quant** (not held)
 
-## Current dashboard state (v0.2.3)
+## Current dashboard state (v0.3.x)
 
 Both dashboards are working, DPR-aware, with correct level-trace rendering.
 
@@ -66,6 +66,55 @@ Both dashboards are working, DPR-aware, with correct level-trace rendering.
 - Per-snapshot M+, M−, ZG traces — **horizontal-only** as of v0.2.3. Each
   stretch of same-y snapshots is one line; transitions meet at the midpoint
   between columns with no vertical connector.
+- **MaxCh overlay** (v0.3.0+) — strikes absorbing the most GEX-imbalance
+  flow. Pulled from `/state/{period}/maxchange` in parallel with the main
+  call so it works in every overlay mode. **Filter is CUSUM + hysteresis**
+  per strike, with `loose / normal / strict` presets. See "MaxCh design
+  decision" below for the literature backing.
+
+## MaxCh design decision (research-backed)
+
+**Problem**: the API returns 6 candidate `(strike, change)` events per second
+(one per lookback bucket). Showing them raw is overwhelmingly noisy because
+different strikes randomly "win" each bucket each cycle.
+
+**Solution**: per-strike signed CUSUM with hysteresis, after a survey of
+the change-detection / microstructure-noise literature.
+
+**Why CUSUM + hysteresis specifically:**
+- CUSUM (Page 1954, *Biometrika*) is one float-op per observation, minimax-
+  optimal for detecting a step change subject to a false-alarm bound
+  (Lorden 1971, *Annals of Math Stat*). Lai (1995) bridges to finance.
+- Hysteresis (Schmitt 1938) is the right *display-layer* debouncer on top
+  of any persistence score — strike enters the rendered set when CUSUM
+  crosses `h_high`, leaves only when it falls below `h_low < h_high`.
+- Both are simple enough not to need a library. ~50 lines total.
+
+**Wrong tools (don't force-fit if iterating):**
+- TSRV / Aït-Sahalia microstructure-noise filtering — assumes continuous
+  Itô semimartingale + iid additive noise. Our signal is discrete
+  tournament-winners; the framework's decomposition doesn't apply.
+- Wavelets / Donoho-Johnstone — batch by nature, right-edge unstable.
+  Useless for live triggering. Reasonable for retrospective panels.
+- VPIN (Easley, López de Prado, O'Hara 2012) — measures market-wide order-
+  flow toxicity, not per-strike events. Conceptual borrow only: bucket on
+  volume, not time.
+
+**Defer-when-needed upgrades:**
+- BOCPD (Adams & MacKay 2007) for ranked confidence + non-stationarity
+- Multi-stream CPD (Xie & Siegmund 2013) for cross-strike coupling
+- Event-level FDR threshold calibration (Harvey, Liu, Zhu 2016)
+
+**Sign-convention pitfall** (cost an investigation): the GexBot
+`/maxchange` value field uses an INVERTED sign relative to "direction of
+imbalance change at the strike." Empirically verified on three live
+screenshots. The renderer negates the raw value before all downstream
+processing. See the comment in `delta.html` (search "API returns raw with
+inverted sign").
+
+The full reference list, ARL calibration targets, and trade-off notes are
+mirrored in the project's memory store at
+`<USER_HOME>/.claude/projects/.../memory/maxch_design_decision.md`.
 
 **index.html** — classic:
 - Absolute-price Y-axis only, simpler controls

@@ -349,15 +349,11 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="Overlay strikes with the largest GEX (imbalance) change. 'agg' = multi-bucket consensus (recommended): renders a glyph at any (snapshot, strike) where flow is fired in 1+ lookback buckets and exceeds 10% of the visible-window max — bigger glyph means more buckets agree. Single-bucket modes (cur / 1m / 5m / 10m / 15m / 30m) show only that bucket's winner per snapshot.">
-      <option value="off" selected>off</option>
-      <option value="agg">agg</option>
-      <option value="current">cur</option>
-      <option value="1">1m</option>
-      <option value="5">5m</option>
-      <option value="10">10m</option>
-      <option value="15">15m</option>
-      <option value="30">30m</option>
+    <select id="sMaxCh" title="MaxCh persistence filter. CUSUM + hysteresis per strike: a glyph appears only after the strike has been firing across multiple buckets for several seconds, and only disappears once activity drops well below the entry threshold. Eliminates per-snapshot flicker. loose=fast trigger, more events; normal=balanced default; strict=only the strongest sustained events.">
+      <option value="off">off</option>
+      <option value="loose">loose</option>
+      <option value="normal" selected>normal</option>
+      <option value="strict">strict</option>
     </select>
   </div>
 
@@ -552,12 +548,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <p>Each is drawn as a horizontal trace across the visible columns. When the level jumps between strikes mid-session, the run at the old level ends and a new one starts at the new level — there's no vertical connector drawn through the intermediate prices.</p>
 
     <h2>MaxCh overlay</h2>
-    <p>The <b>MaxCh</b> selector overlays strikes that are absorbing the most GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included).</p>
+    <p>The <b>MaxCh</b> selector overlays strikes that are absorbing sustained GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets each pick a winning strike every second, with adjacent strikes randomly trading places. The filter applies a per-strike <b>CUSUM</b> persistence test with <b>hysteresis</b> on top, so glyphs only appear once a strike has been firing across multiple buckets for several seconds, and only disappear once activity drops well below the entry threshold.</p>
     <dl>
-      <dt>agg <span style="color:#9aa">— recommended</span></dt><dd>For each snapshot, all six lookback buckets (current / 1m / 5m / 10m / 15m / 30m) are grouped by strike. A strike that fires in N buckets gets a glyph sized by N — multi-bucket agreement means flow is <i>persistent</i> across timescales, not a single-cycle blip. Strikes below 10% of the visible-window max magnitude are filtered out so the layer doesn't drown in noise. Glyph opacity scales with magnitude. <b>Sign = majority vote across the firing buckets</b> (ties broken by the max-magnitude bucket) so the displayed color reflects consensus across timescales rather than just whichever window had the biggest absolute change.</dd>
-      <dt>cur / 1m / 5m / 10m / 15m / 30m</dt><dd>Single-bucket mode: only that bucket's winning strike per snapshot, sized by magnitude. Useful for inspecting one timescale at a time. Noisier than <b>agg</b> on its own.</dd>
+      <dt>off</dt><dd>No overlay.</dd>
+      <dt>loose</dt><dd>Fast trigger, more events shown. Use when the market is quiet and you want to see anything moving.</dd>
+      <dt>normal <span style="color:#9aa">— default</span></dt><dd>Balanced — agg-mode-like density but stable across snapshots.</dd>
+      <dt>strict</dt><dd>Only the strongest sustained events survive. Use during heavy flow when normal is still busy.</dd>
     </dl>
-    <p><b>Reading <i>agg</i>:</b> a tight cluster of large glyphs at one strike across consecutive snapshots = real, sustained flow. Scattered single-bucket glyphs jumping strike-to-strike = transient noise. Glyphs that line up vertically with the brightest heatmap bands are the "where the action is" strikes worth watching.</p>
+    <p><b>Glyph encoding</b>: color = direction of imbalance change (green = call-side accumulation, red = put-side accumulation); size = magnitude of the most recent print at the strike, normalized over the visible window; opacity = same.</p>
+    <p><b>Reading the layer:</b> a band of glyphs at one strike across many consecutive snapshots = real persistent flow. The hysteresis means the strike won't drop in/out frame-by-frame at the threshold boundary — it stays "on" once it crosses the entry bar, until activity decays well below it. Solid clusters lining up vertically with the brightest heatmap bands are the "where the action is" strikes.</p>
+    <p><b>Theory note</b>: the CUSUM detector (Page 1954) is minimax-optimal for change detection subject to a false-alarm bound (Lorden 1971); hysteresis (Schmitt 1938) is the canonical display-layer debouncer. Picked over Bayesian online changepoint detection (Adams &amp; MacKay 2007) and BVP-style multi-stream detectors (Xie &amp; Siegmund 2013) for simplicity — both available as upgrades if needed. Wavelets and microstructure-noise filters (Aït-Sahalia / Mykland / Zhang) and VPIN solve adjacent but distinct problems.</p>
 
     <h2>Keyboard</h2>
     <dl>
@@ -1439,150 +1439,167 @@ function renderHeat() {
   drawLevelTrace(s => s.meta.majPos, '#30ff70', 'M+', []);
   drawLevelTrace(s => s.meta.majNeg, '#ff4428', 'M−', []);
 
-  // ── Max-change glyphs ── overlays strikes that are absorbing the most flow.
-  // max_priors order: [0]=current, [1]=1m, [2]=5m, [3]=10m, [4]=15m, [5]=30m.
+  // ── Max-change glyphs ── persistence-filtered overlay of strikes absorbing
+  // sustained GEX-imbalance flow. The raw /maxchange feed is noisy: every
+  // second, six buckets each name a winning strike, and adjacent strikes
+  // randomly trade places. Showing every print produces a flicker storm.
   //
-  // Two modes:
-  //   • agg — for each snapshot, group all 6 buckets by strike. A strike that
-  //           appears in N buckets (1..6) gets a glyph sized by N — multi-
-  //           bucket agreement = persistent flow across timescales.
-  //           Strikes below 10% of the visible-window max magnitude are
-  //           filtered out so the layer doesn't drown in noise.
-  //   • single bucket (cur / 1m / 5m / 10m / 15m / 30m) — only that bucket's
-  //           winning strike per snapshot, sized by magnitude.
+  // Filter design (chosen after a literature survey — see CLAUDE.md and
+  // `<USER_HOME>/.claude/projects/.../memory/maxch_design_decision.md`):
+  //
+  //   1. Per-strike signed CUSUM (Page 1954, Lorden 1971): two accumulators
+  //      per strike (S_pos, S_neg). Each snapshot, decay both by k (the
+  //      reference value, ≈ noise-floor expected hit rate). If the strike
+  //      "fires" at this snapshot — wins ≥1 bucket — add `n_buckets` to the
+  //      majority-sign accumulator. Single-bucket sporadic winners decay
+  //      faster than they accumulate; sustained 2+-bucket prints accumulate.
+  //
+  //   2. Hysteresis state machine on top (Schmitt 1938). Strike enters
+  //      ON_POS / ON_NEG when the corresponding S crosses h_high, and only
+  //      leaves when it falls below h_low (h_low < h_high). Eliminates
+  //      display flicker at the threshold boundary.
+  //
+  //   3. Render glyphs only for strikes in ON state at each snapshot.
+  //
+  // Sign convention: API's raw value is inverted relative to direction of
+  // imbalance change (verified empirically — see negate of `raw` below).
+  //
+  // CUSUM walks ALL snapshots from index 0 (state must persist beyond the
+  // visible window). Cost is one float-op per strike per snapshot — trivial
+  // even at MAX_SNAPS = 20000 over hundreds of strikes.
   {
     const maxChSel = document.getElementById('sMaxCh').value;
-    if (maxChSel === 'agg') {
-      // First pass: aggregate per snapshot and find global magnitude reference.
-      //
-      // Sign convention: the API's max_priors / maxchange `value` field comes
-      // back with a sign OPPOSITE to "direction of imbalance change at the
-      // strike". Verified empirically against live data: walls steadily
-      // growing more negative produce positive raw values (the API treats
-      // put-side accumulation as positive); walls lightening from negative
-      // produce negative raw values. We negate raw to align with intuition:
-      // positive `dir` here means imbalance ROSE (call-side accumulation,
-      // green dot), negative means imbalance FELL (put-side accumulation,
-      // red dot). The doc's literal reading is ambiguous, but the inverted-
-      // sign interpretation is the only one consistent with screenshots
-      // showing red on rising walls AND green on falling walls.
-      //
-      // Sign rule is majority vote over the firing buckets (not the sign of
-      // the max-magnitude bucket — that biases toward 30m flow rather than
-      // what's happening right now). Ties fall back to max-magnitude sign.
-      const perSnap = [];
+    const PRESETS = {
+      loose:  { k: 1.5, hHigh: 4,  hLow: 2 },
+      normal: { k: 1.5, hHigh: 6,  hLow: 3 },
+      strict: { k: 1.5, hHigh: 10, hLow: 5 },
+    };
+    const preset = PRESETS[maxChSel];
+    if (preset) {
+      const { k, hHigh, hLow } = preset;
+
+      // Persistent CUSUM state across snapshots[0..endI). Map: strike → {sPos, sNeg, state, lastMag}
+      const cusum = new Map();
+      // For visible snapshots, capture which strikes are ON for rendering.
+      // snapStates[i] is an array of {strike, state, mag} for snapshot ci=i.
+      const snapStates = new Array(endI);
+
       let globalMaxMag = 0;
-      for (let ci = startI; ci < endI; ci++) {
+      for (let ci = 0; ci < endI; ci++) {
         const mp = snapshots[ci].meta.maxPriors;
-        if (!mp) continue;
-        const agg = new Map();
-        for (let b = 0; b < 6; b++) {
-          const entry = mp[b];
-          if (!entry) continue;
-          const strike = parseFloat(entry[0]);
-          const raw    = parseFloat(entry[1]);
-          if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
-          const dir = -raw;  // see sign convention note above
-          const cur = agg.get(strike) || {
-            count: 0, maxAbs: 0, posVotes: 0, negVotes: 0, tieBreak: 0,
-          };
-          cur.count++;
-          if (dir >= 0) cur.posVotes++; else cur.negVotes++;
-          const mag = Math.abs(dir);
-          if (mag > cur.maxAbs) {
-            cur.maxAbs   = mag;
-            cur.tieBreak = dir >= 0 ? 1 : -1;
+
+        // Aggregate this snapshot's bucket entries by strike.
+        const fired = new Map();
+        if (mp) {
+          for (let b = 0; b < 6; b++) {
+            const entry = mp[b];
+            if (!entry) continue;
+            const strike = parseFloat(entry[0]);
+            const raw    = parseFloat(entry[1]);
+            if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
+            const dir = -raw; // sign-convention inversion
+            const cur = fired.get(strike) || {
+              count: 0, posVotes: 0, negVotes: 0, maxAbs: 0, tieBreak: 0,
+            };
+            cur.count++;
+            if (dir >= 0) cur.posVotes++; else cur.negVotes++;
+            const mag = Math.abs(dir);
+            if (mag > cur.maxAbs) {
+              cur.maxAbs   = mag;
+              cur.tieBreak = dir >= 0 ? 1 : -1;
+            }
+            fired.set(strike, cur);
           }
-          agg.set(strike, cur);
-          if (mag > globalMaxMag) globalMaxMag = mag;
         }
-        // Resolve sign: majority vote, ties broken by max-magnitude bucket.
-        for (const info of agg.values()) {
-          info.sign = info.posVotes > info.negVotes ?  1
-                    : info.negVotes > info.posVotes ? -1
-                    : info.tieBreak;
+
+        // CUSUM step 1: decay all existing accumulators by k.
+        for (const cs of cusum.values()) {
+          cs.sPos = Math.max(0, cs.sPos - k);
+          cs.sNeg = Math.max(0, cs.sNeg - k);
         }
-        if (agg.size) perSnap.push({ ci, agg });
+
+        // CUSUM step 2: add `count` to the matching-sign accumulator for fired strikes.
+        for (const [strike, info] of fired) {
+          const sign = info.posVotes > info.negVotes ?  1
+                     : info.negVotes > info.posVotes ? -1
+                     : info.tieBreak;
+          let cs = cusum.get(strike);
+          if (!cs) {
+            cs = { sPos: 0, sNeg: 0, state: 0, lastMag: 0 };
+            cusum.set(strike, cs);
+          }
+          if (sign > 0) cs.sPos += info.count;
+          else          cs.sNeg += info.count;
+          cs.lastMag = info.maxAbs;
+        }
+
+        // Hysteresis: state transitions for all tracked strikes.
+        for (const cs of cusum.values()) {
+          if (cs.state === 0) {
+            if      (cs.sPos >= hHigh) cs.state = +1;
+            else if (cs.sNeg >= hHigh) cs.state = -1;
+          } else if (cs.state === +1 && cs.sPos < hLow) {
+            cs.state = 0;
+          } else if (cs.state === -1 && cs.sNeg < hLow) {
+            cs.state = 0;
+          }
+        }
+
+        // Capture per-snapshot render state for visible window.
+        if (ci >= startI) {
+          const list = [];
+          for (const [strike, cs] of cusum) {
+            if (cs.state !== 0 && cs.lastMag > 0) {
+              list.push({ strike, state: cs.state, mag: cs.lastMag });
+              if (cs.lastMag > globalMaxMag) globalMaxMag = cs.lastMag;
+            }
+          }
+          snapStates[ci] = list;
+        }
+
+        // Cleanup: drop fully-decayed entries to keep the map small.
+        for (const [strike, cs] of cusum) {
+          if (cs.sPos === 0 && cs.sNeg === 0 && cs.state === 0) {
+            cusum.delete(strike);
+          }
+        }
       }
-      if (perSnap.length && globalMaxMag > 0) {
-        const threshold = globalMaxMag * 0.10;
+
+      // Render glyphs.
+      if (globalMaxMag > 0) {
         heatCX.save();
-        for (const { ci, agg } of perSnap) {
+        let hasAnyVisible = false;
+        for (let ci = startI; ci < endI; ci++) {
+          const list = snapStates[ci];
+          if (!list || !list.length) continue;
           const spot = snapshots[ci].meta.spot || 0;
           const x    = effPAX + (ci - startI) * effColW + effColW / 2;
-          for (const [strike, info] of agg) {
-            if (info.maxAbs < threshold) continue;
+          for (const { strike, state, mag } of list) {
             const yv = yValue(strike, spot);
             if (yv < yDomain.min || yv > yDomain.max) continue;
-            const y = yToPx(yv, H);
-            // Radius: 1 bucket ≈ 2.4 px, 6 buckets ≈ 7.8 px (linear in count).
-            const r     = 1.5 + info.count * 1.05;
-            // Opacity scales with magnitude — sqrt for visibility floor.
-            const alpha = 0.40 + 0.60 * Math.sqrt(info.maxAbs / globalMaxMag);
+            const y     = yToPx(yv, H);
+            const norm  = mag / globalMaxMag;
+            const r     = 2.5 + 4.0 * Math.sqrt(norm);
+            const alpha = 0.50 + 0.50 * Math.sqrt(norm);
             heatCX.beginPath();
             heatCX.arc(x, y, r + 1.4, 0, Math.PI * 2);
             heatCX.fillStyle = 'rgba(0,0,0,0.85)';
             heatCX.fill();
             heatCX.beginPath();
             heatCX.arc(x, y, r, 0, Math.PI * 2);
-            const rgb = info.sign > 0 ? '48,255,112' : '255,68,40';
+            const rgb = state > 0 ? '48,255,112' : '255,68,40';
             heatCX.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
             heatCX.fill();
+            hasAnyVisible = true;
           }
         }
-        heatCX.fillStyle = '#a0d8ff';
-        heatCX.font      = 'bold 11px Courier New';
-        heatCX.textAlign = 'right';
-        heatCX.fillText('ΔMaxCh agg', W - LGAP - 4, 28);
-        heatCX.restore();
-      }
-    } else {
-      const bucketIdx = { current:0, '1':1, '5':2, '10':3, '15':4, '30':5 }[maxChSel];
-      if (bucketIdx !== undefined) {
-        const pts = [];
-        let maxMag = 0;
-        for (let ci = startI; ci < endI; ci++) {
-          const mp = snapshots[ci].meta.maxPriors;
-          if (!mp || !mp[bucketIdx]) continue;
-          const strike = parseFloat(mp[bucketIdx][0]);
-          const raw    = parseFloat(mp[bucketIdx][1]);
-          if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
-          // See sign-convention note in the agg branch above: API returns
-          // raw with inverted sign relative to direction of imbalance change.
-          const dir = -raw;
-          const spot = snapshots[ci].meta.spot || 0;
-          const yv = yValue(strike, spot);
-          if (yv < yDomain.min || yv > yDomain.max) continue;
-          pts.push({
-            x: effPAX + (ci - startI) * effColW + effColW / 2,
-            y: yToPx(yv, H),
-            val: dir,
-          });
-          const m = Math.abs(dir);
-          if (m > maxMag) maxMag = m;
-        }
-        if (pts.length && maxMag > 0) {
-          heatCX.save();
-          for (const p of pts) {
-            const norm = Math.abs(p.val) / maxMag;
-            const r    = 2.2 + 4.5 * Math.sqrt(norm);
-            heatCX.beginPath();
-            heatCX.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
-            heatCX.fillStyle = 'rgba(0,0,0,0.85)';
-            heatCX.fill();
-            heatCX.beginPath();
-            heatCX.arc(p.x, p.y, r, 0, Math.PI * 2);
-            heatCX.fillStyle = p.val >= 0 ? '#30ff70' : '#ff4428';
-            heatCX.fill();
-          }
-          const last = pts[pts.length - 1];
+        if (hasAnyVisible) {
           heatCX.fillStyle = '#a0d8ff';
           heatCX.font      = 'bold 11px Courier New';
           heatCX.textAlign = 'right';
-          const labelTxt = maxChSel === 'current' ? 'ΔMaxCh cur' : `ΔMaxCh ${maxChSel}m`;
-          heatCX.fillText(labelTxt, W - LGAP - 4, last.y + 14);
-          heatCX.restore();
+          heatCX.fillText(`ΔMaxCh ${maxChSel}`, W - LGAP - 4, 28);
         }
+        heatCX.restore();
       }
     }
   }

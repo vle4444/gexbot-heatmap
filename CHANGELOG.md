@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.4.0] — MaxCh: CUSUM + hysteresis filter (research-backed), sign-convention fix
+
+### MaxCh overlay rebuild (delta.html)
+- **Persistence filter** added on top of the per-snapshot rendering. The
+  raw `/maxchange` feed is structurally noisy — six buckets each name a
+  winning strike per second, and adjacent strikes randomly trade places.
+  Showing every print produces a flicker storm. Filter design after a
+  literature survey on real-time signal extraction:
+  - **Per-strike signed CUSUM** (Page 1954, Lorden 1971's minimax-optimal
+    setup): two accumulators per strike (positive, negative). Each snapshot,
+    decay both by `k` (the noise-floor reference value); add the bucket-fire
+    count to the matching-sign accumulator when the strike fires. Sustained
+    multi-bucket prints accumulate; sporadic single-bucket winners decay
+    faster than they accumulate.
+  - **Hysteresis state machine** (Schmitt 1938): strike enters the
+    `ON_POS` / `ON_NEG` displayed set when its CUSUM crosses `h_high`, and
+    only leaves once it falls below `h_low < h_high`. Eliminates the
+    threshold-boundary oscillation that pure single-threshold filters suffer.
+  - Glyph color = consensus sign (green = call-side accumulation, red =
+    put-side accumulation); size and opacity scale with magnitude of the
+    most recent print, normalized over the visible window.
+- **UI replaced**: dropdown is now `off / loose / normal / strict`. Single-
+  bucket modes (`cur / 1m / 5m / 10m / 15m / 30m`) and the previous `agg`
+  mode are removed — the CUSUM eats all the bucket information automatically.
+- Default thresholds (no-simulation calibration; can be re-tuned via ARL):
+  - `loose` — k=1.5, h_high=4, h_low=2 (faster trigger, more events)
+  - `normal` — k=1.5, h_high=6, h_low=3 (default)
+  - `strict` — k=1.5, h_high=10, h_low=5 (only the strongest events)
+
+### Sign-convention fix (delta.html)
+- The GexBot `/maxchange` and `/state.max_priors` value field is **inverted
+  in sign relative to "direction of imbalance change at the strike"**.
+  Empirically verified across three live screenshots: walls steadily
+  growing more negative produce positive raw values; walls lightening from
+  negative produce negative raw values. Renderer now negates raw before
+  any voting / coloring / sizing. Green = imbalance rose (call-side flow),
+  red = imbalance fell (put-side flow).
+
+### Research provenance (delta.html, CLAUDE.md, memory store)
+- Filter design choices are documented in `CLAUDE.md` under "MaxCh design
+  decision" and mirrored in the project memory store at
+  `<USER_HOME>/.claude/projects/.../memory/maxch_design_decision.md`.
+- References cited: Page 1954 (CUSUM), Lorden 1971 (minimax optimality),
+  Adams &amp; MacKay 2007 (BOCPD — deferred upgrade path), Cont/Kukanov/
+  Stoikov 2014 (OFI as the right impact prior), Bouchaud et al. 2018
+  (square-root metaorder-impact decay, motivates persistence-with-decay
+  shape), Savickas &amp; Wilson 2003 (irreducible options-classifier noise
+  floor — bounds what filtering can achieve), Easley/López de Prado/O'Hara
+  2012 (VPIN — conceptual borrow only).
+- Wavelets, TSRV, and VPIN explicitly ruled out as wrong-tool-for-the-job
+  in `CLAUDE.md` so future iterations don't re-litigate.
+
+### Help overlay docs
+- "MaxCh overlay" section rewritten to describe the new CUSUM + hysteresis
+  semantics, glyph encoding, and reading guidance, with literature
+  references for any contributor curious about the design rationale.
+
 ## [0.3.0] — MaxCh overlay, comprehensive docs, default config refresh
 
 ### MaxCh overlay (new — delta.html)
