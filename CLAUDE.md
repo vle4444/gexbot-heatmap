@@ -60,6 +60,13 @@ Both dashboards are working, DPR-aware, with correct level-trace rendering.
 - Blend modes: sharp / additive Gaussian / max (sign-safe, default)
 - Strike-px ladder control with options `fit` and `2/3/4/6/8/12/16/20/24/32/48`
   as of v0.2.3. Still capped at natural `rowHd` to prevent neighbor overflow.
+- **Sub-pixel `Col px` + session minimap** (v0.5.0+). `Col px` accepts
+  `0.1 / 0.25 / 0.5 / 1` (sub-pixel) and a `fit` mode that auto-sizes to
+  the full session. When width per snapshot is below one device pixel, the
+  renderer aggregates source snapshots into output columns via max-abs per
+  strike. Above the main heatmap, a fixed-height **minimap** always renders
+  the entire session at session-wide aggregation; the blue viewport
+  rectangle marks the current main view. Click to re-center, drag to scrub.
 - TZ selector for x-axis labels (Local / UTC / NY / Chicago / London / Berlin
   / Tokyo / HK)
 - SAVE/LOAD of session buffers as JSON

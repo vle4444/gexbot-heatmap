@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.5.0] — Full-session zoom: sub-pixel `Col px`, aggregation, and minimap
+
+### Sub-pixel `Col px` with max-abs aggregation (delta.html)
+- `Col px` dropdown now accepts sub-pixel widths: `0.1 / 0.25 / 0.5 / 1`
+  in addition to the existing `2 / 4 / 6 / 8 / 12`. Values < 1 trigger
+  per-strike **max-abs aggregation**: multiple source snapshots collapse
+  into one output column, and at each strike the largest-magnitude print
+  in the bin survives (preserving sign). Lets you compress a full session
+  into one screen at the cost of within-bin temporal resolution.
+- New **`fit`** option auto-sizes `Col px` so the entire session fills the
+  visible heatmap width. Aggregation kicks in automatically.
+- Wheel-zoom (Shift + scroll on heatmap) is now continuous-float: each
+  step multiplies width by `0.80` / `1.25` instead of stepping through
+  fixed integer values, so you can land exactly on the desired range.
+- The aggregation also flows through every overlay: M+/M−/ZG traces,
+  MaxCh CUSUM glyphs, the spot trace, and the x-axis labels all sample
+  the bin's representative source snapshot (last in the bin) so they stay
+  aligned with the aggregated heatmap underneath.
+
+### Session minimap with viewport rectangle (delta.html)
+- New 80px-tall **minimap strip** above the main heatmap. Always renders
+  the full session aggregated to the canvas width, regardless of the main
+  heatmap's current zoom. The aggregation engine is shared with sub-pixel
+  `Col px` — same max-abs-per-strike reduction, just at session scale.
+- A blue **viewport rectangle** marks what the main heatmap currently
+  shows. Updates every render.
+- **Click anywhere** on the minimap to re-center the main heatmap at that
+  point in the session. **Drag** to scrub continuously.
+- Coloring uses raw GEX-imbalance values (not Δ Change), so the minimap
+  stays a useful "where are the walls across the day" reference even when
+  the main view is in Δ Change mode.
+
+### Buffer
+- `MAX_SNAPS` raised from `20000` to `28000` so a full 6.5h US session at
+  1s refresh fits with headroom.
+
+### Help overlay
+- Updated `Col px` section with the sub-pixel + `fit` semantics.
+- New "Minimap" section explaining click/drag navigation and the
+  aggregation reduction.
+
+### Notes
+- Mouse hover, drag-to-scroll, and time-axis tick computations now share
+  a single `renderMetrics()` helper that derives `binSize`, `colWd`,
+  `effColW`, and the visible source range from `effectiveColW()` and
+  `dpr`. Previously the geometry was duplicated inline at three sites
+  with subtle drift potential.
+
 ## [0.4.0] — MaxCh: CUSUM + hysteresis filter (research-backed), sign-convention fix
 
 ### MaxCh overlay rebuild (delta.html)

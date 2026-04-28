@@ -81,6 +81,26 @@ input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
 canvas#heat { display: block; width: 100%; height: 100%; cursor: crosshair; }
 #pc { width: 160px; border-left: 1px solid var(--border); position: relative; flex-shrink: 0; min-width: 60px; max-width: 600px; }
 canvas#prof { display: block; width: 100%; height: 100%; }
+
+/* minimap — always-on session overview strip with a viewport rectangle */
+#mm {
+  height: 80px; border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative; flex-shrink: 0; background: #000;
+}
+canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
+#mm-viewport {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  border-left: 2px solid #60b8ff; border-right: 2px solid #60b8ff;
+  background: rgba(96,184,255,0.08);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.45) inset;
+  display: none;
+}
+#mm-label {
+  position: absolute; top: 4px; left: 8px; pointer-events: none;
+  font-family: var(--font); font-size: 10px; color: #888;
+  letter-spacing: 1.5px;
+}
 #resizer {
   position: absolute; top: 0; left: -3px; width: 7px; height: 100%;
   cursor: ew-resize; z-index: 10; background: transparent;
@@ -320,7 +340,12 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl">Col px</span>
-    <select id="sColW">
+    <select id="sColW" title="Width per snapshot in CSS pixels. Sub-pixel values (0.1 / 0.25 / 0.5) aggregate multiple snapshots into one column via max-abs per strike — lets you see longer time ranges. 'fit' auto-sizes to fit the entire session.">
+      <option value="fit">fit</option>
+      <option value="0.1">0.1</option>
+      <option value="0.25">0.25</option>
+      <option value="0.5">0.5</option>
+      <option value="1">1</option>
       <option value="2" selected>2</option>
       <option value="4">4</option>
       <option value="6">6</option>
@@ -393,6 +418,12 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <div class="stat"><span class="slab">Snaps</span><span id="v-sn" class="sval">0</span></div>
     <div class="stat"><span class="slab">Updated</span><span id="v-ts" class="sval">—</span></div>
   </div>
+</div>
+
+<div id="mm" title="Session minimap. Always shows the full session aggregated. The rectangle marks what the main heatmap is currently viewing — click anywhere to jump there, drag the rectangle to scroll.">
+  <canvas id="minimap"></canvas>
+  <div id="mm-viewport"></div>
+  <div id="mm-label">SESSION</div>
 </div>
 
 <div id="main">
@@ -516,6 +547,24 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
     <h2>Col px</h2>
     <p>Pixel width of each snapshot column. Higher = larger cells, fewer snapshots on screen. Shift+scroll over the heatmap does the same thing live.</p>
+    <dl>
+      <dt>2 / 4 / 6 / 8 / 12</dt>
+      <dd>Standard widths — one snapshot per column.</dd>
+      <dt>1 / 0.5 / 0.25 / 0.1</dt>
+      <dd>Sub-pixel widths. Multiple snapshots collapse into a single output column via <b>max-abs per strike</b> — the strongest signal at each strike per time-bin survives. Lets you see longer time ranges at the cost of within-bin temporal resolution.</dd>
+      <dt>fit</dt>
+      <dd>Auto-sizes to fit the entire session in one frame. Aggregation kicks in automatically as the session grows.</dd>
+    </dl>
+
+    <h2>Minimap (session strip)</h2>
+    <p>The thin horizontal strip above the main heatmap shows the entire session aggregated. The blue rectangle marks what the main heatmap is currently displaying.</p>
+    <dl>
+      <dt>Click anywhere on the strip</dt>
+      <dd>Re-centers the main heatmap on that point in the session.</dd>
+      <dt>Drag</dt>
+      <dd>Scrubs the main heatmap's view as you drag.</dd>
+    </dl>
+    <p>Aggregation in the minimap uses the same <b>max-abs per strike</b> reduction as sub-pixel <code>Col px</code> — the highest-magnitude print at each strike per time-bin defines the color, regardless of session length.</p>
 
     <h2>Strike px</h2>
     <p>Cap each strike's vertical band height in CSS pixels. Controls how cramped or spread-out the heatmap looks vertically.</p>
@@ -585,7 +634,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 // ═══════════════════════════════════════════════════════
 // API key is injected by server.js (see .env) — client never sees it
 const BASE_URL  = '/api';
-const MAX_SNAPS = 20000;
+const MAX_SNAPS = 28000;  // ≥ full 6.5h session at 1s refresh, with buffer
 
 // ═══════════════════════════════════════════════════════
 //  STATE
@@ -604,12 +653,13 @@ let timer        = null;
 // ═══════════════════════════════════════════════════════
 const heatCV = document.getElementById('heat'), heatCX = heatCV.getContext('2d');
 const profCV = document.getElementById('prof'), profCX = profCV.getContext('2d');
+const mmCV   = document.getElementById('minimap'), mmCX = mmCV.getContext('2d');
 let   PAX = 70, TAX = 22, LGAP = 20;   // CSS pixels
 let   dpr = 1;                          // updated on resize
 
 function resize() {
   dpr = window.devicePixelRatio || 1;
-  for (const cv of [heatCV, profCV]) {
+  for (const cv of [heatCV, profCV, mmCV]) {
     const cssW = cv.parentElement.clientWidth;
     const cssH = cv.parentElement.clientHeight;
     cv.style.width  = cssW + 'px';
@@ -931,9 +981,20 @@ function scaleScope(startI, endI) {
 }
 
 function effectiveColW() {
-  const base = parseInt(document.getElementById('sColW').value);
-  const w = colWOverride === null ? base : colWOverride;
-  return Math.max(1, Math.min(80, Math.round(w)));
+  // CSS pixels per snapshot. Float-valued — sub-pixel widths (< 1) trigger
+  // aggregation in renderHeat (multiple snapshots per output column, max-abs
+  // per strike across the bin). Wheel zoom / drag overrides take priority.
+  if (colWOverride !== null) {
+    return Math.max(0.05, Math.min(80, colWOverride));
+  }
+  const sel = document.getElementById('sColW').value;
+  if (sel === 'fit') {
+    const drawW = heatCV.clientWidth - PAX - LGAP;
+    if (snapshots.length < 1 || drawW < 2) return 2;
+    return Math.max(0.05, Math.min(80, drawW / snapshots.length));
+  }
+  const v = parseFloat(sel);
+  return Math.max(0.05, Math.min(80, isFinite(v) ? v : 2));
 }
 
 // Collect all unique strikes across snapshots (for tick spacing)
@@ -976,18 +1037,32 @@ function renderHeat() {
 
   if (yDomain.max <= yDomain.min || drawW < 2) return;
 
-  const colW   = effectiveColW();
-  const colWd  = Math.max(1, Math.round(colW * dpr));
-  // Effective CSS metrics — what the heatmap *actually* occupies after device-pixel rounding.
-  // Without these, the spot trace and time-axis ticks (which live in CSS space) drift
-  // against the heatmap columns on fractional-DPR displays (e.g., 1.25x, 1.33x).
+  const colW = effectiveColW();
+  // Cell size in device pixels per *source* snapshot. When < 1, multiple
+  // source snapshots aggregate into one output column (max-abs per strike).
+  // When ≥ 1, each output column is colWd device pixels wide and represents
+  // a single source snapshot, as before.
+  const cellSize = colW * dpr;
+  const colWd  = (cellSize >= 1) ? Math.max(1, Math.round(cellSize)) : 1;
+  const binSize = (cellSize >= 1) ? 1 : Math.max(1, Math.round(1 / cellSize));
+  // Effective CSS metrics — what the heatmap *actually* occupies after
+  // device-pixel rounding. Without these the spot trace and time-axis ticks
+  // (which live in CSS space) drift against the heatmap columns on
+  // fractional-DPR displays (e.g., 1.25x, 1.33x).
   const effColW = colWd / dpr;
   const effPAX  = PAXd  / dpr;
+  // nCols = number of *output* columns. In aggregated mode (binSize > 1)
+  // this is up to drawWd (one column per device pixel); each represents
+  // binSize source snapshots.
   const nCols  = Math.max(1, Math.floor(drawW / effColW));
-  const maxOff = Math.max(0, snapshots.length - nCols);
+  // visibleSourceLen = the source-snapshot range [startI, endI) covered by
+  // the rendered columns. scrollOffset is kept in source-snapshot units so
+  // existing scroll logic (drag, wheel, arrow keys) keeps working.
+  const visibleSourceLen = nCols * binSize;
+  const maxOff = Math.max(0, snapshots.length - visibleSourceLen);
   scrollOffset = Math.max(0, Math.min(scrollOffset, maxOff));
   const endI   = snapshots.length - scrollOffset;
-  const startI = Math.max(0, endI - nCols);
+  const startI = Math.max(0, endI - visibleSourceLen);
 
   // Pre-build strike→vol maps. Scope depends on mode — trailing modes need history
   // before startI, cumulative needs full history back to 0, uniform modes only need
@@ -1261,8 +1336,8 @@ function renderHeat() {
   // yToPx in DEVICE pixels
   const yToPxD = (yv) => drawHd * (1 - (yv - yDomain.min) / yRange);
 
-  // Build ImageData at device resolution
-  const iwD = Math.min(drawWd, (endI - startI) * colWd);
+  // Build ImageData at device resolution. iwD = output-column-pixels covered.
+  const iwD = Math.min(drawWd, nCols * colWd);
   if (iwD <= 0) { heatCX.setTransform(dpr, 0, 0, dpr, 0, 0); return; }
   const imgD = heatCX.createImageData(iwD, drawHd);
   const px   = imgD.data;
@@ -1275,19 +1350,51 @@ function renderHeat() {
   const blend    = document.getElementById('sBlend').value;
   const halfRow  = effRowPxD / 2;
 
-  for (let ci = startI; ci < endI; ci++) {
-    const snap = snapshots[ci];
-    const sp   = snap.meta.spot || 0;
-    const xBase = (ci - startI) * colWd;
+  // Aggregation helper: for binSize > 1, fold a range of source snapshots
+  // into a single synthetic "strikes" list using max-abs per strike. Returns
+  // [{price, vol}, ...]. The caller's blend logic then runs over the result
+  // exactly as it does for a single snapshot.
+  const aggBin = (binStart, binEnd) => {
+    const agg = new Map();
+    for (let i = binStart; i < binEnd; i++) {
+      if (!pvMaps[i]) continue;
+      for (const st of snapshots[i].strikes) {
+        const v = volAt(i, st.price, pvMaps);
+        if (v === 0) continue;
+        const cur = agg.get(st.price);
+        if (cur === undefined || Math.abs(v) > Math.abs(cur)) {
+          agg.set(st.price, v);
+        }
+      }
+    }
+    const out = [];
+    for (const [price, vol] of agg) out.push({ price, vol });
+    return out;
+  };
+
+  for (let k = 0; k < nCols; k++) {
+    const binStart = startI + k * binSize;
+    if (binStart >= endI) break;
+    const binEnd   = Math.min(endI, binStart + binSize);
+    const repCi    = binEnd - 1;             // bin's representative source ci
+    const repSnap  = snapshots[repCi];
+    if (!repSnap) continue;
+    const sp       = repSnap.meta.spot || 0;
+    const xBase    = k * colWd;
+
+    // Strikes for this output column — aggregated when binSize > 1, direct
+    // (with volAt applied lazily) when binSize === 1.
+    const aggregated = (binSize > 1);
+    const strikes    = aggregated ? aggBin(binStart, binEnd) : repSnap.strikes;
 
     colVol.fill(0);
 
     if (blend === 'hard') {
       // Flat rectangle: write v directly into the strike's pixel rows.
-      for (const st of snap.strikes) {
+      for (const st of strikes) {
         const yv = yValue(st.price, sp);
         if (yv < yDomain.min || yv > yDomain.max) continue;
-        const v = volAt(ci, st.price, pvMaps);
+        const v = aggregated ? st.vol : volAt(repCi, st.price, pvMaps);
         if (v === 0) continue;
         const yMid = yToPxD(yv);
         const y0   = Math.max(0,          Math.floor(yMid - halfRow));
@@ -1296,10 +1403,10 @@ function renderHeat() {
       }
     } else if (blend === 'sum') {
       // Additive Gaussian: each strike adds its peak-normalized kernel contribution.
-      for (const st of snap.strikes) {
+      for (const st of strikes) {
         const yv = yValue(st.price, sp);
         if (yv < yDomain.min || yv > yDomain.max) continue;
-        const v = volAt(ci, st.price, pvMaps);
+        const v = aggregated ? st.vol : volAt(repCi, st.price, pvMaps);
         if (v === 0) continue;
         const yMid  = yToPxD(yv);
         const yMidI = Math.round(yMid);
@@ -1311,11 +1418,10 @@ function renderHeat() {
       }
     } else {
       // Max blend: for each pixel, keep the strike contribution with the largest |v × kernel|.
-      // Preserves sign identity — opposite-sign neighbors cannot cancel a small strike.
-      for (const st of snap.strikes) {
+      for (const st of strikes) {
         const yv = yValue(st.price, sp);
         if (yv < yDomain.min || yv > yDomain.max) continue;
-        const v = volAt(ci, st.price, pvMaps);
+        const v = aggregated ? st.vol : volAt(repCi, st.price, pvMaps);
         if (v === 0) continue;
         const yMid  = yToPxD(yv);
         const yMidI = Math.round(yMid);
@@ -1323,19 +1429,20 @@ function renderHeat() {
         const y1    = Math.min(drawHd - 1, yMidI + kRadius);
         const absV  = Math.abs(v);
         for (let y = y0; y <= y1; y++) {
-          const k = kernel[y - yMidI + kRadius];
-          const absC = absV * k;
-          if (absC > Math.abs(colVol[y])) colVol[y] = v * k;
+          const k2 = kernel[y - yMidI + kRadius];
+          const absC = absV * k2;
+          if (absC > Math.abs(colVol[y])) colVol[y] = v * k2;
         }
       }
     }
 
-    // Color each pixel row in this column
+    // Color each pixel row in this column. toT receives repCi so per-source
+    // scale modes (cumulative, snapshot, trailing) keep their indexing.
     const xEnd = Math.min(iwD, xBase + colWd);
     for (let y = 0; y < drawHd; y++) {
       const v = colVol[y];
       if (v === 0) continue;
-      const [r, g, b] = getColorRGBT(toT(v, ci));
+      const [r, g, b] = getColorRGBT(toT(v, repCi));
       for (let x = xBase; x < xEnd; x++) {
         const idx = (y * iwD + x) * 4;
         px[idx] = r; px[idx+1] = g; px[idx+2] = b; px[idx+3] = 255;
@@ -1362,14 +1469,21 @@ function renderHeat() {
     const segments = [];
     let cur = [];
     const flushSeg = () => { if (cur.length) { segments.push(cur); cur = []; } };
-    for (let ci = startI; ci < endI; ci++) {
+    // One trace point per output column. In aggregated mode (binSize > 1)
+    // each output column represents a bin of source snapshots; we sample the
+    // bin's last (most recent) source snap for the level value.
+    for (let k = 0; k < nCols; k++) {
+      const binStart = startI + k * binSize;
+      if (binStart >= endI) break;
+      const binEnd = Math.min(endI, binStart + binSize);
+      const ci = binEnd - 1;
       const v = parseFloat(getValue(snapshots[ci]));
       if (!isFinite(v) || v <= 0) { flushSeg(); continue; }
       const spot = snapshots[ci].meta.spot || 0;
       const yv = yValue(v, spot);
       if (yv < yDomain.min || yv > yDomain.max) { flushSeg(); continue; }
       cur.push({
-        x: effPAX + (ci - startI) * effColW + effColW / 2,
+        x: effPAX + k * effColW + effColW / 2,
         y: yToPx(yv, H),
         raw: v,
       });
@@ -1480,9 +1594,11 @@ function renderHeat() {
 
       // Persistent CUSUM state across snapshots[0..endI). Map: strike → {sPos, sNeg, state, lastMag}
       const cusum = new Map();
-      // For visible snapshots, capture which strikes are ON for rendering.
-      // snapStates[i] is an array of {strike, state, mag} for snapshot ci=i.
-      const snapStates = new Array(endI);
+      // Sampled at output-column granularity. In aggregated mode (binSize > 1)
+      // each k maps to a bin of source snapshots; we capture state at the
+      // bin's last source ci (most recent within the bin). snapStates[k] is
+      // an array of {strike, state, mag} for output column k.
+      const snapStates = new Array(nCols);
 
       let globalMaxMag = 0;
       for (let ci = 0; ci < endI; ci++) {
@@ -1545,16 +1661,25 @@ function renderHeat() {
           }
         }
 
-        // Capture per-snapshot render state for visible window.
+        // Capture render state at bin-end positions only. In binSize=1 mode
+        // every visible ci is a bin-end; in aggregated mode only the last ci
+        // of each bin contributes a glyph (avoids redundant per-ci capture).
         if (ci >= startI) {
-          const list = [];
-          for (const [strike, cs] of cusum) {
-            if (cs.state !== 0 && cs.lastMag > 0) {
-              list.push({ strike, state: cs.state, mag: cs.lastMag });
-              if (cs.lastMag > globalMaxMag) globalMaxMag = cs.lastMag;
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const [strike, cs] of cusum) {
+                if (cs.state !== 0 && cs.lastMag > 0) {
+                  list.push({ strike, state: cs.state, mag: cs.lastMag });
+                  if (cs.lastMag > globalMaxMag) globalMaxMag = cs.lastMag;
+                }
+              }
+              snapStates[k] = list;
             }
           }
-          snapStates[ci] = list;
         }
 
         // Cleanup: drop fully-decayed entries to keep the map small.
@@ -1569,11 +1694,14 @@ function renderHeat() {
       if (globalMaxMag > 0) {
         heatCX.save();
         let hasAnyVisible = false;
-        for (let ci = startI; ci < endI; ci++) {
-          const list = snapStates[ci];
+        for (let k = 0; k < nCols; k++) {
+          const list = snapStates[k];
           if (!list || !list.length) continue;
-          const spot = snapshots[ci].meta.spot || 0;
-          const x    = effPAX + (ci - startI) * effColW + effColW / 2;
+          const binStart = startI + k * binSize;
+          if (binStart >= endI) break;
+          const repCi = Math.min(endI - 1, binStart + binSize - 1);
+          const spot = snapshots[repCi].meta.spot || 0;
+          const x    = effPAX + k * effColW + effColW / 2;
           for (const { strike, state, mag } of list) {
             const yv = yValue(strike, spot);
             if (yv < yDomain.min || yv > yDomain.max) continue;
@@ -1606,12 +1734,16 @@ function renderHeat() {
 
   // Spot: in abs mode draw trace across time; in relative modes draw y=0 reference
   if (yMode() === 'abs') {
-    // Animated price trace
+    // Animated price trace — one point per output column. In aggregated mode
+    // we use the bin's last source snap's spot for smoothness.
     const tracePts = [];
-    for (let ci = startI; ci < endI; ci++) {
+    for (let k = 0; k < nCols; k++) {
+      const binStart = startI + k * binSize;
+      if (binStart >= endI) break;
+      const ci = Math.min(endI - 1, binStart + binSize - 1);
       const s = snapshots[ci].meta.spot;
       if (s > 0 && s >= yDomain.min && s <= yDomain.max)
-        tracePts.push({ x: effPAX + (ci - startI) * effColW + effColW / 2, y: yToPx(s, H) });
+        tracePts.push({ x: effPAX + k * effColW + effColW / 2, y: yToPx(s, H) });
     }
     if (tracePts.length) {
       heatCX.save();
@@ -1684,9 +1816,13 @@ function renderHeat() {
   heatCX.fillStyle = '#fff'; heatCX.font = 'bold 11px Courier New'; heatCX.textAlign = 'center';
   const fmtHM = tsFormatter('hm');
   // HH:MM in bold 11px Courier is ~33px wide — 40px spacing keeps a small gap.
+  // Tick spacing is in output columns (each column = effColW CSS pixels).
   const tickEvery = Math.max(1, Math.round(40 / effColW));
-  for (let ci = startI; ci < endI; ci += tickEvery) {
-    const x = effPAX + (ci - startI) * effColW + effColW / 2;
+  for (let k = 0; k < nCols; k += tickEvery) {
+    const binStart = startI + k * binSize;
+    if (binStart >= endI) break;
+    const ci = Math.min(endI - 1, binStart + binSize - 1);
+    const x = effPAX + k * effColW + effColW / 2;
     const t = fmtHM.format(new Date(snapshots[ci].ts));
     heatCX.fillText(t, x, drawH + 14);
   }
@@ -1785,7 +1921,175 @@ function renderProfile() {
   }
 }
 
-function render() { refreshPaletteCache(); renderHeat(); renderProfile(); }
+// ═══════════════════════════════════════════════════════
+//  MINIMAP — full-session overview strip with a viewport rectangle.
+//  Always renders the entire session (snapshots[0..length)), aggregated
+//  to one device pixel column per chunk, max-abs per strike across the
+//  chunk. The rectangle marks what the main heatmap is currently
+//  showing — click anywhere to recenter, drag to scroll.
+// ═══════════════════════════════════════════════════════
+function renderMinimap() {
+  if (!snapshots.length || yDomain.max <= yDomain.min) {
+    mmCX.setTransform(1, 0, 0, 1, 0, 0);
+    mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, mmCV.width, mmCV.height);
+    document.getElementById('mm-viewport').style.display = 'none';
+    return;
+  }
+  const W  = mmCV.clientWidth;
+  const H  = mmCV.clientHeight;
+  const Wd = mmCV.width;
+  const Hd = mmCV.height;
+  const drawHd = Hd;
+  // Use the full-session yDomain — derive a min/max from all snapshots so the
+  // minimap shows the session in one frame regardless of the main heatmap's
+  // current zoom.
+  let yMin = Infinity, yMax = -Infinity;
+  for (const s of snapshots) {
+    for (const st of s.strikes) {
+      if (st.price < yMin) yMin = st.price;
+      if (st.price > yMax) yMax = st.price;
+    }
+  }
+  if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
+    mmCX.setTransform(1, 0, 0, 1, 0, 0);
+    mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
+    document.getElementById('mm-viewport').style.display = 'none';
+    return;
+  }
+  const yRange = yMax - yMin;
+  const yToPxMM = (yv) => drawHd * (1 - (yv - yMin) / yRange);
+
+  // Aggregation: each output device pixel column covers binSize source snaps.
+  const total   = snapshots.length;
+  const nCols   = Wd;
+  const binSize = Math.max(1, Math.ceil(total / nCols));
+
+  // Find max-abs across the session for color normalization.
+  let sessionMax = 0;
+  for (const s of snapshots) {
+    for (const st of s.strikes) {
+      const a = Math.abs(st.vol);
+      if (a > sessionMax) sessionMax = a;
+    }
+  }
+  if (sessionMax <= 0) {
+    mmCX.setTransform(1, 0, 0, 1, 0, 0);
+    mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
+    document.getElementById('mm-viewport').style.display = 'none';
+    return;
+  }
+
+  mmCX.setTransform(1, 0, 0, 1, 0, 0);
+  mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
+
+  const imgD = mmCX.createImageData(Wd, Hd);
+  const px   = imgD.data;
+  const colVol = new Float32Array(drawHd);
+  // Approximate strike-row half-height for the minimap. Use the
+  // smallest gap between any two strikes seen in the first snapshot
+  // as a guide; clamp to a small visible range so a wall isn't a
+  // single-pixel sliver.
+  let tick = yRange / 50;
+  if (snapshots[0] && snapshots[0].strikes.length > 1) {
+    const sorted = snapshots[0].strikes.map(s => s.price).sort((a, b) => a - b);
+    let m = Infinity;
+    for (let i = 1; i < Math.min(sorted.length, 30); i++) {
+      m = Math.min(m, sorted[i] - sorted[i - 1]);
+    }
+    if (m > 0 && isFinite(m)) tick = m;
+  }
+  const rowH = Math.max(1, Math.round((drawHd / yRange) * tick));
+  const halfRow = rowH / 2;
+
+  for (let k = 0; k < nCols; k++) {
+    const binStart = k * binSize;
+    if (binStart >= total) break;
+    const binEnd = Math.min(total, binStart + binSize);
+
+    // Aggregate strikes in this bin, max-abs per strike.
+    const agg = new Map();
+    for (let i = binStart; i < binEnd; i++) {
+      for (const st of snapshots[i].strikes) {
+        const v = st.vol;
+        if (v === 0) continue;
+        const cur = agg.get(st.price);
+        if (cur === undefined || Math.abs(v) > Math.abs(cur)) {
+          agg.set(st.price, v);
+        }
+      }
+    }
+    if (!agg.size) continue;
+
+    colVol.fill(0);
+    for (const [price, v] of agg) {
+      const yMid = yToPxMM(price);
+      const y0   = Math.max(0,        Math.floor(yMid - halfRow));
+      const y1   = Math.min(Hd - 1,   Math.ceil (yMid + halfRow));
+      const absV = Math.abs(v);
+      for (let y = y0; y <= y1; y++) {
+        if (absV > Math.abs(colVol[y])) colVol[y] = v;
+      }
+    }
+    for (let y = 0; y < Hd; y++) {
+      const v = colVol[y];
+      if (v === 0) continue;
+      const t = Math.max(-1, Math.min(1, v / sessionMax));
+      const [r, g, b] = getColorRGBT(t);
+      const idx = (y * Wd + k) * 4;
+      px[idx] = r; px[idx + 1] = g; px[idx + 2] = b; px[idx + 3] = 255;
+    }
+  }
+  mmCX.putImageData(imgD, 0, 0);
+
+  // ── Viewport rectangle (CSS coordinates) ──
+  const m = renderMetrics();
+  const visStart = m.startI;
+  const visEnd   = m.endI;
+  const x0 = (visStart / total) * W;
+  const x1 = (visEnd   / total) * W;
+  const vp = document.getElementById('mm-viewport');
+  vp.style.display = 'block';
+  vp.style.left  = `${x0}px`;
+  vp.style.width = `${Math.max(2, x1 - x0)}px`;
+}
+
+function render() { refreshPaletteCache(); renderHeat(); renderProfile(); renderMinimap(); }
+
+// ═══════════════════════════════════════════════════════
+//  MINIMAP MOUSE HANDLERS — click to jump, drag the viewport to scrub.
+// ═══════════════════════════════════════════════════════
+let mmDragging = false, mmDragStartX = 0, mmDragStartCenter = 0;
+function setMinimapCenter(snapshotIdx) {
+  const m = renderMetrics();
+  const visLen = (m.endI - m.startI);
+  // We want endI so that center of [startI, endI) ≈ snapshotIdx.
+  const newEndI = Math.min(snapshots.length, Math.max(visLen, snapshotIdx + Math.ceil(visLen / 2)));
+  scrollOffset = Math.max(0, snapshots.length - newEndI);
+  followLive = (scrollOffset === 0);
+  render();
+}
+mmCV.addEventListener('mousedown', e => {
+  if (!snapshots.length) return;
+  const rect = mmCV.getBoundingClientRect();
+  const W = mmCV.clientWidth;
+  const total = snapshots.length;
+  const x = e.clientX - rect.left;
+  const targetIdx = Math.round((x / W) * total);
+  setMinimapCenter(targetIdx);
+  mmDragging = true;
+  mmDragStartX = e.clientX;
+  mmDragStartCenter = targetIdx;
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!mmDragging) return;
+  const W = mmCV.clientWidth;
+  const total = snapshots.length;
+  const dx = e.clientX - mmDragStartX;
+  const dIdx = (dx / W) * total;
+  setMinimapCenter(Math.round(mmDragStartCenter + dIdx));
+});
+window.addEventListener('mouseup', () => { mmDragging = false; });
 
 // ═══════════════════════════════════════════════════════
 //  STATS + UI
@@ -1994,10 +2298,12 @@ heatCV.addEventListener('wheel', e => {
   e.preventDefault();
 
   if (e.shiftKey) {
+    // Zoom X. colW is now a float — supports sub-pixel widths for aggregated
+    // long-range views. Floor at 0.05 (≈ ~20 source snapshots per pixel).
     const curW = effectiveColW();
     let newW;
-    if (e.deltaY > 0) newW = Math.max(1,  Math.floor(curW * 0.80) || curW - 1);
-    else              newW = Math.min(80, Math.ceil(curW * 1.25)  || curW + 1);
+    if (e.deltaY > 0) newW = Math.max(0.05, curW * 0.80);
+    else              newW = Math.min(80,   curW * 1.25);
     colWOverride = newW; render(); return;
   }
 
@@ -2030,13 +2336,37 @@ heatCV.addEventListener('mousedown', e => {
   dragMode = (e.altKey || inTimeAxis) ? 'x' : 'y';
   if (dragMode === 'y') zoomLock = true;
 });
+// Helper: derive the same render metrics renderHeat uses, so mouse handlers
+// agree on output-column → source-snapshot mapping. Returns:
+//   colWd       — device pixels per output column (≥ 1)
+//   binSize     — source snapshots per output column (≥ 1)
+//   effColW     — CSS pixels per output column
+//   effPAX      — left gutter in CSS pixels (DPR-rounded)
+//   nCols       — output columns visible
+//   startI/endI — visible source-snapshot range
+function renderMetrics() {
+  const cw       = effectiveColW();
+  const cellSize = cw * dpr;
+  const colWd    = (cellSize >= 1) ? Math.max(1, Math.round(cellSize)) : 1;
+  const binSize  = (cellSize >= 1) ? 1 : Math.max(1, Math.round(1 / cellSize));
+  const effColW  = colWd / dpr;
+  const effPAX   = Math.round(PAX * dpr) / dpr;
+  const drawW    = heatCV.clientWidth - PAX - LGAP;
+  const nCols    = Math.max(1, Math.floor(drawW / effColW));
+  const visLen   = nCols * binSize;
+  const endI     = snapshots.length - scrollOffset;
+  const startI   = Math.max(0, endI - visLen);
+  return { colWd, binSize, effColW, effPAX, nCols, startI, endI };
+}
+
 heatCV.addEventListener('mousemove', e => {
   if (dragging) {
     if (dragMode === 'x') {
       const dx = e.clientX - dragX0;
-      const cw = effectiveColW();
-      const effColW = Math.max(1, Math.round(cw * dpr)) / dpr;
-      scrollOffset = Math.max(0, Math.round(dragOff0 + dx / effColW));
+      const m = renderMetrics();
+      // dx / effColW → output-column delta. Multiply by binSize for the
+      // equivalent source-snapshot delta (scrollOffset's unit).
+      scrollOffset = Math.max(0, Math.round(dragOff0 + (dx / m.effColW) * m.binSize));
       followLive = (scrollOffset === 0);
       render();
     } else if (yDomain.max > yDomain.min) {
@@ -2048,19 +2378,17 @@ heatCV.addEventListener('mousemove', e => {
     }
   }
   if (yDomain.max > yDomain.min) {
-    const yv  = pxToY(e.offsetY, heatCV.clientHeight);
-    const cw = effectiveColW();
-    const effColW = Math.max(1, Math.round(cw * dpr)) / dpr;
-    const effPAX  = Math.round(PAX * dpr) / dpr;
-    const nCols = Math.floor((heatCV.clientWidth - PAX - LGAP) / effColW);
-    const endI  = snapshots.length - scrollOffset;
-    const startI = Math.max(0, endI - nCols);
-    const ci = startI + Math.floor((e.offsetX - effPAX) / effColW);
-    const snap = snapshots[ci];
+    const yv = pxToY(e.offsetY, heatCV.clientHeight);
+    const m  = renderMetrics();
+    // Output column under cursor → bin's last source ci.
+    const k  = Math.floor((e.offsetX - m.effPAX) / m.effColW);
+    const binStart = m.startI + k * m.binSize;
+    const ci = Math.min(snapshots.length - 1, Math.max(0, binStart + m.binSize - 1));
+    const snap = (ci >= 0 && ci < snapshots.length) ? snapshots[ci] : null;
     let yLabel;
-    if (yMode() === 'abs')       yLabel = yv.toFixed(2);
+    if (yMode() === 'abs')          yLabel = yv.toFixed(2);
     else if (yMode() === 'rel_pts') yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(2);
-    else                         yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(3) + '%';
+    else                            yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(3) + '%';
     const ts = snap ? '  ·  ' + tsFormatter('hms').format(new Date(snap.ts)) : '';
     document.getElementById('cur').textContent = `${yLabel}${ts}`;
   }
