@@ -782,6 +782,35 @@ function ingest(data, greek, mcData) {
   }
   if (followLive) scrollOffset = 0;
 
+  // ── Debug instrumentation: log raw maxchange values for one strike ──
+  // Activate by appending `?dbg=7140` (or any strike) to the URL, or by
+  // setting `window.__dbgStrike = 7140` in the console at runtime. Logs
+  // each snapshot's six bucket values (current/1m/5m/10m/15m/30m) at the
+  // chosen strike, plus the strike's current GEX-imbalance from snap.strikes.
+  // Used to verify the API sign convention (raw vs direction-of-change).
+  // Comment out / strip once verified.
+  const dbgStrike = (typeof window.__dbgStrike === 'number') ? window.__dbgStrike : null;
+  if (dbgStrike !== null && mcArr) {
+    const labels = ['cur ', '1m  ', '5m  ', '10m ', '15m ', '30m '];
+    const lines = [];
+    for (let b = 0; b < 6; b++) {
+      const e = mcArr[b];
+      if (!e) continue;
+      const strike = parseFloat(e[0]);
+      const raw    = parseFloat(e[1]);
+      if (strike === dbgStrike) {
+        lines.push(`  ${labels[b]}: raw=${raw.toFixed(2).padStart(10)}  (dir=${(-raw).toFixed(2).padStart(10)})`);
+      }
+    }
+    if (lines.length) {
+      const cur = snap.strikes.find(s => s.price === dbgStrike);
+      const curStr = cur ? cur.vol.toFixed(2) : 'n/a';
+      const tsStr  = new Date(ts).toLocaleTimeString();
+      console.log(`[${tsStr}] strike=${dbgStrike}  current_imbalance=${curStr}`);
+      for (const l of lines) console.log(l);
+    }
+  }
+
   refreshYDomain(snap);
   updateStats(snap.meta);
   render();
@@ -790,6 +819,18 @@ function ingest(data, greek, mcData) {
   document.getElementById('v-ts').textContent =
     tsFormatter('hms').format(new Date(ts));
 }
+
+// ── Debug: parse `?dbg=STRIKE` from URL and arm the maxchange logger ──
+(function armDbgFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const v = parseFloat(params.get('dbg'));
+    if (isFinite(v) && v > 0) {
+      window.__dbgStrike = v;
+      console.log(`[dbg] MaxCh logger armed for strike ${v}. Watch console for per-snapshot raw values.`);
+    }
+  } catch (_) { /* no-op */ }
+})();
 
 // ═══════════════════════════════════════════════════════
 //  Y-AXIS MODE — translates strike+spot into the y-value
