@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.2] — MaxCh: three quieter presets above `strict`
+
+### Why
+User reported that even `strict` (k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)
+was producing too many glyphs during heavy flow. Rather than swap the detector
+(literature review in `memory/maxch_design_decision.md` already validated CUSUM
+as the right choice for this problem class), extend the same CUSUM + hysteresis
+machinery with progressively quieter tiers.
+
+### Changes
+- **`delta.html`** — `MaxCh` selector gains three new options stacked above
+  `strict`. CUSUM theory: ARL₀ grows ~exponentially in <i>h</i> and ~quadratically
+  in <i>k</i>, so we escalate <i>h</i> first, then raise <i>k</i> for the
+  noise-floor effect.
+  - `tight`:   k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8  — ~1.5× strict's threshold
+  - `severe`:  k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11 — both knobs raised; lone-bucket prints now decay faster than they accumulate
+  - `extreme`: k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18 — only multi-minute sustained 3+-bucket dominance lights up
+- In-page help (`<dl>` under MaxCh overlay) documents each tier with its
+  numeric parameters and a one-line use case.
+- Existing `loose / normal / strict` defaults are unchanged.
+
+### No detector change
+Same CUSUM + hysteresis state machine; same per-snapshot decay-then-accumulate
+loop; same sign-convention inversion. Only the preset table is extended.
+
 ## [0.5.1] — Docs reorganization: lean `CLAUDE.md` + `docs/HISTORY.md` split
 
 ### Why

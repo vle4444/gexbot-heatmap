@@ -374,11 +374,14 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh persistence filter. CUSUM + hysteresis per strike: a glyph appears only after the strike has been firing across multiple buckets for several seconds, and only disappears once activity drops well below the entry threshold. Eliminates per-snapshot flicker. loose=fast trigger, more events; normal=balanced default; strict=only the strongest sustained events.">
+    <select id="sMaxCh" title="MaxCh persistence filter. CUSUM + hysteresis per strike: a glyph appears only after the strike has been firing across multiple buckets for several seconds, and only disappears once activity drops well below the entry threshold. Eliminates per-snapshot flicker. loose=fast trigger, more events; normal=balanced default; strict=only the strongest sustained events; tight/severe/extreme=progressively quieter (raised h and k) for very busy sessions.">
       <option value="off">off</option>
       <option value="loose">loose</option>
       <option value="normal" selected>normal</option>
       <option value="strict">strict</option>
+      <option value="tight">tight</option>
+      <option value="severe">severe</option>
+      <option value="extreme">extreme</option>
     </select>
   </div>
 
@@ -600,10 +603,14 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
     <p>The <b>MaxCh</b> selector overlays strikes that are absorbing sustained GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets each pick a winning strike every second, with adjacent strikes randomly trading places. The filter applies a per-strike <b>CUSUM</b> persistence test with <b>hysteresis</b> on top, so glyphs only appear once a strike has been firing across multiple buckets for several seconds, and only disappear once activity drops well below the entry threshold.</p>
     <dl>
       <dt>off</dt><dd>No overlay.</dd>
-      <dt>loose</dt><dd>Fast trigger, more events shown. Use when the market is quiet and you want to see anything moving.</dd>
-      <dt>normal <span style="color:#9aa">— default</span></dt><dd>Balanced — agg-mode-like density but stable across snapshots.</dd>
-      <dt>strict</dt><dd>Only the strongest sustained events survive. Use during heavy flow when normal is still busy.</dd>
+      <dt>loose</dt><dd>Fast trigger, more events shown. Use when the market is quiet and you want to see anything moving. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=4, h<sub>low</sub>=2)</span></dd>
+      <dt>normal <span style="color:#9aa">— default</span></dt><dd>Balanced — agg-mode-like density but stable across snapshots. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=6, h<sub>low</sub>=3)</span></dd>
+      <dt>strict</dt><dd>Only the strongest sustained events survive. Use during heavy flow when normal is still busy. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)</span></dd>
+      <dt>tight</dt><dd>~1.5× <code>strict</code>'s threshold. Same reference value, but a strike must accumulate longer before it lights up. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8)</span></dd>
+      <dt>severe</dt><dd>Both knobs raised: higher reference value (k=2.0) means small single-bucket prints decay faster than they accumulate, on top of a much higher threshold. Lone-bucket sporadic winners are effectively suppressed. <span style="color:#9aa">(k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11)</span></dd>
+      <dt>extreme</dt><dd>Only the most persistent multi-bucket events survive — minutes of sustained 3+-bucket dominance at the same strike. Most sessions will show very few glyphs. <span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
     </dl>
+    <p>The added <b>tight / severe / extreme</b> tiers extend the same CUSUM + hysteresis machinery, escalating <i>h</i> (decision threshold — primary knob, ARL₀ grows ~exponentially in <i>h</i>) and then <i>k</i> (reference value, raises the noise-floor each accumulator must clear per snapshot). Use when even <code>strict</code> is producing too many glyphs.</p>
     <p><b>Glyph encoding</b>: color = direction of imbalance change (green = call-side accumulation, red = put-side accumulation); size = magnitude of the most recent print at the strike, normalized over the visible window; opacity = same.</p>
     <p><b>Reading the layer:</b> a band of glyphs at one strike across many consecutive snapshots = real persistent flow. The hysteresis means the strike won't drop in/out frame-by-frame at the threshold boundary — it stays "on" once it crosses the entry bar, until activity decays well below it. Solid clusters lining up vertically with the brightest heatmap bands are the "where the action is" strikes.</p>
     <p><b>Theory note</b>: the CUSUM detector (Page 1954) is minimax-optimal for change detection subject to a false-alarm bound (Lorden 1971); hysteresis (Schmitt 1938) is the canonical display-layer debouncer. Picked over Bayesian online changepoint detection (Adams &amp; MacKay 2007) and BVP-style multi-stream detectors (Xie &amp; Siegmund 2013) for simplicity — both available as upgrades if needed. Wavelets and microstructure-noise filters (Aït-Sahalia / Mykland / Zhang) and VPIN solve adjacent but distinct problems.</p>
@@ -1583,10 +1590,16 @@ function renderHeat() {
   // even at MAX_SNAPS = 20000 over hundreds of strikes.
   {
     const maxChSel = document.getElementById('sMaxCh').value;
+    // CUSUM ARL₀ (mean time between false alarms) grows roughly exponentially
+    // in h and quadratically in k, so threshold is the primary stringency knob.
+    // Keep hLow ≈ hHigh/2 so re-entry behavior matches the existing presets.
     const PRESETS = {
-      loose:  { k: 1.5, hHigh: 4,  hLow: 2 },
-      normal: { k: 1.5, hHigh: 6,  hLow: 3 },
-      strict: { k: 1.5, hHigh: 10, hLow: 5 },
+      loose:   { k: 1.5, hHigh: 4,  hLow: 2  },
+      normal:  { k: 1.5, hHigh: 6,  hLow: 3  },
+      strict:  { k: 1.5, hHigh: 10, hLow: 5  },
+      tight:   { k: 1.5, hHigh: 15, hLow: 8  },
+      severe:  { k: 2.0, hHigh: 22, hLow: 11 },
+      extreme: { k: 2.5, hHigh: 35, hLow: 18 },
     };
     const preset = PRESETS[maxChSel];
     if (preset) {
