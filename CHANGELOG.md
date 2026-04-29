@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.4] — `Col px = 1d` mode (fixed one-session layout)
+
+### New
+- **`Col px` dropdown gains `1d`**, sitting between `fit` and the sub-pixel
+  options. Where `fit` auto-sizes to the *current buffer length* (so the
+  view re-flows as data accumulates), `1d` fixes the layout to exactly
+  one full US regular session: `6.5h × 3600s = 23,400` snaps. The width
+  per snapshot is `drawW / 23400`, which on a typical screen lands at
+  `colW ≈ 0.08` and triggers ~13:1 max-abs aggregation.
+- Behavior:
+  - Buffer smaller than a session → rendered data fills the right end
+    only; left side stays empty as the session progresses.
+  - Buffer larger than a session → only the most recent 23,400 snaps
+    show (older data is past the visible left edge but stays in the
+    minimap, which always shows the full buffer).
+- New `SNAPS_PER_DAY = 23400` constant in `delta.html` for clarity.
+- Help-overlay docs updated with the `1d` semantics.
+
 ## [0.5.3] — Minimap & `fit` mode bug fixes
 
 ### Fixes

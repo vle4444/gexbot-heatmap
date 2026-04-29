@@ -339,8 +339,9 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
 
   <div class="ctrl">
     <span class="lbl">Col px</span>
-    <select id="sColW" title="Width per snapshot in CSS pixels. Sub-pixel values (0.1 / 0.25 / 0.5) aggregate multiple snapshots into one column via max-abs per strike — lets you see longer time ranges. 'fit' auto-sizes to fit the entire session.">
+    <select id="sColW" title="Width per snapshot in CSS pixels. 'fit' auto-sizes to fit the entire current buffer. '1d' fixes the layout to one full US regular session (6.5h × 1s = 23400 snaps) regardless of how much data is buffered. Sub-pixel values (0.1 / 0.25 / 0.5) aggregate via max-abs per strike.">
       <option value="fit">fit</option>
+      <option value="1d">1d</option>
       <option value="0.1">0.1</option>
       <option value="0.25">0.25</option>
       <option value="0.5">0.5</option>
@@ -554,8 +555,10 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
       <dd>Standard widths — one snapshot per column.</dd>
       <dt>1 / 0.5 / 0.25 / 0.1</dt>
       <dd>Sub-pixel widths. Multiple snapshots collapse into a single output column via <b>max-abs per strike</b> — the strongest signal at each strike per time-bin survives. Lets you see longer time ranges at the cost of within-bin temporal resolution.</dd>
+      <dt>1d</dt>
+      <dd>Fixed layout for exactly one full US regular trading session (6.5h at 1s polling = 23,400 snaps). The width never changes as the buffer grows — the rendered session fills more of the canvas as the day progresses. Useful for "always-on session view."</dd>
       <dt>fit</dt>
-      <dd>Auto-sizes to fit the entire session in one frame. Aggregation kicks in automatically as the session grows.</dd>
+      <dd>Auto-sizes to fit the entire current buffer in one frame, whatever its length. Aggregation kicks in automatically as the buffer grows.</dd>
     </dl>
 
     <h2>Minimap (session strip)</h2>
@@ -986,6 +989,11 @@ function scaleScope(startI, endI) {
   return [s, endI];
 }
 
+// One full regular US trading session at 1s polling. 6.5h × 3600s = 23400.
+// Used by the '1d' Col px mode to fix the layout to exactly one session
+// regardless of how much data is currently buffered.
+const SNAPS_PER_DAY = 23400;
+
 function effectiveColW() {
   // CSS pixels per snapshot. Float-valued — sub-pixel widths (< 1) trigger
   // aggregation in renderHeat (multiple snapshots per output column, max-abs
@@ -998,6 +1006,14 @@ function effectiveColW() {
     const drawW = heatCV.clientWidth - PAX - LGAP;
     if (snapshots.length < 1 || drawW < 2) return 2;
     return Math.max(0.05, Math.min(80, drawW / snapshots.length));
+  }
+  if (sel === '1d') {
+    // Fixed layout: exactly SNAPS_PER_DAY worth of width. If the buffer is
+    // smaller, the rendered data fills only the right end (most recent);
+    // if larger, only the most recent SNAPS_PER_DAY are visible.
+    const drawW = heatCV.clientWidth - PAX - LGAP;
+    if (drawW < 2) return 2;
+    return Math.max(0.05, Math.min(80, drawW / SNAPS_PER_DAY));
   }
   const v = parseFloat(sel);
   return Math.max(0.05, Math.min(80, isFinite(v) ? v : 2));
