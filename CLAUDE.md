@@ -1,5 +1,7 @@
 # GEX Heatmap
 
+_Last updated: 2026-04-29 · corresponds to `v0.6.x`_
+
 Live GEX (gamma exposure) heatmap dashboard for options-market visualization, built on the GexBot API. Vanilla browser JS + a dependency-free Node proxy. Personal/research project — not for redistribution.
 
 ## Stack
@@ -16,7 +18,7 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 - No build / no test / no lint pipeline — vanilla JS, no toolchain.
 
 ## Architecture
-- `delta.html` — flow-oriented heatmap. Δ vs Raw measure, offset Y modes, Strike-px ladder, MaxCh CUSUM overlay, session minimap.
+- `delta.html` — flow-oriented heatmap. Δ vs Raw measure, offset Y modes, Strike-px ladder, MaxCh persistence (CUSUM) + event detectors (burst / swarm / pump), sub-pixel `Col px` with max-abs aggregation, IndexedDB auto-save + RESTORE.
 - `index.html` — classic absolute GEX heatmap. Simpler controls, left-gutter level guides.
 - `server.js` — all-in-one HTTP server: static files + `/api/*` proxy to api.gexbot.com (auth-injected) + `/histapi/*` proxy + `/fetch?url=` for presigned S3.
 - `recorder.js` — optional long-running JSONL recorder.
@@ -31,7 +33,7 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 - Numeric financial fields (strike, price, greek): use `??`, **never** `||`. Numeric zero is falsy and silently drops legitimate values.
 - DPR canvas math: compute tick / overlay positions in CSS-space via `setTransform(dpr, 0, 0, dpr, 0, 0)`, not in raw device pixels. Fractional DPR (1.25x, 1.33x) drifts otherwise.
 - The `gexbot_custom_` prefix is part of the **token value**, not a URL path segment. Always goes in `Authorization: Bearer …`. Costed hours of 400/404 debugging once.
-- GexBot `/maxchange` value field uses an **inverted** sign vs direction of imbalance change. The renderer negates raw before downstream processing. Don't "fix" the negation without re-reading `docs/HISTORY.md` § MaxCh.
+- GexBot `/maxchange` value field appears to use an **inverted** sign vs direction of imbalance change — the renderer negates raw before downstream processing (`dir = -raw`). This is based on three live screenshots; later evidence (a pump producing red where green was expected) puts it in doubt. A debug logger is wired in (`?dbg=STRIKE` URL param). **Don't "fix" the negation without first running the debug logger on a clean event** — see `docs/HISTORY.md` § MaxCh and the open TODO in the auto-memory store.
 - State-endpoint responses report `_oi`, `zero_gamma`, and `delta_risk_reversal` as literal `0` (not null/missing). Treat as N/A in State mode rather than legitimate zeros.
 - IMPORTANT: GexBot endpoints and the State classification engine are proprietary. Do not reverse-engineer or redistribute upstream payloads.
 - IMPORTANT: Project is dependency-free. **Do not add npm dependencies** without explicit approval. Same for build tools / transpilers / frameworks.

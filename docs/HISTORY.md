@@ -2,7 +2,7 @@
 
 Project-internal narrative: design rationale, resolved bugs, deferred items, and the commercial-product context. Loaded on demand by Claude — see `CLAUDE.md` for the always-loaded operational rules.
 
-_Last reviewed: 2026-04-27 · corresponds to `v0.5.x`_
+_Last reviewed: 2026-04-29 · corresponds to `v0.6.x`_
 
 ---
 
@@ -40,11 +40,15 @@ _Last reviewed: 2026-04-27 · corresponds to `v0.5.x`_
 - 14 color-scale normalization modes (see `docs/COLOR_SCALES.md`).
 - Blend modes: sharp (default since v0.4.0) / additive Gaussian / max (sign-safe).
 - Strike-px ladder control with options `fit` and `2 / 3 / 4 / 6 / 8 / 12 / 16 / 20 / 24 / 32 / 48` (v0.2.3+). Capped at natural `rowHd` to prevent neighbor overflow.
-- **Sub-pixel `Col px` + session minimap** (v0.5.0+). `Col px` accepts `0.1 / 0.25 / 0.5 / 1` (sub-pixel) and a `fit` mode that auto-sizes to the full session. When width per snapshot is below one device pixel, the renderer aggregates source snapshots into output columns via max-abs per strike. Above the main heatmap, a fixed-height **minimap** always renders the entire session at session-wide aggregation; the blue viewport rectangle marks the current main view. Click to re-center, drag to scrub.
+- **Sub-pixel `Col px`** (v0.5.0+). `Col px` accepts `0.1 / 0.25 / 0.5 / 1` (sub-pixel), a `fit` mode that auto-sizes to the full current buffer, and a `1d` mode (v0.5.4+) that fixes the layout to one full US regular session (6.5h × 1s = 23,400 snaps). When width per snapshot is below one device pixel, the renderer aggregates source snapshots into output columns via max-abs per strike (preserves sign of the strongest print in the bin).
+- **Session minimap** (v0.5.0–v0.6.1, **removed in v0.6.2**). Briefly added an 80px-tall always-visible session-overview strip above the main heatmap with a click/drag viewport rectangle. Removed because the focus is on the main heatmap; `Col px = fit` and `1d` cover the same use cases without taking screen real estate.
 - TZ selector for x-axis labels (Local / UTC / NY / Chicago / London / Berlin / Tokyo / HK).
 - SAVE / LOAD of session buffers as JSON.
 - Per-snapshot M+, M−, ZG traces — **horizontal-only** as of v0.2.3. Each stretch of same-y snapshots is one line; transitions meet at the midpoint between columns with no vertical connector.
-- **MaxCh overlay** (v0.3.0+, full rebuild v0.4.0). Strikes absorbing the most GEX-imbalance flow. Pulled from `/state/{period}/maxchange` in parallel with the main call so it works in every overlay mode. **Filter is CUSUM + hysteresis** per strike, with `loose / normal / strict` presets — see § MaxCh design decision below.
+- **MaxCh overlay** (v0.3.0+, full rebuild v0.4.0, expanded v0.5.2 + v0.6.0). Strikes absorbing the most GEX-imbalance flow. Pulled from `/state/{period}/maxchange` in parallel with the main call so it works in every overlay mode. Two detector families:
+  - **Persistence (CUSUM + hysteresis)** — `loose / normal / strict / tight / severe / extreme`. See § MaxCh design decision below.
+  - **Event detectors** (v0.6.0+) — `burst / swarm / pump`. Velocity z-score, cluster, and combined+near-spot. Designed to fire on sudden coordinated activity and stay quiet in steady state. Complement the persistence layer (which by design filters fast events out as potential noise).
+- **Auto-saved sessions + RESTORE** (v0.6.1+). Every snapshot writes to the browser's IndexedDB in the background, keyed by (ticker, expiry, greek, date). New `RESTORE` button next to `LOAD` enables itself with the on-disk count for today's session matching the current selection. Sessions older than today are auto-purged on startup. All MaxCh detection modes work on restored data because `meta.maxPriors` is part of the snapshot. Existing JSON `SAVE` / `LOAD` is untouched and remains the right tool for cross-machine portability.
 
 ### `index.html` — classic
 - Absolute-price Y-axis only, simpler controls.
@@ -74,9 +78,16 @@ _Last reviewed: 2026-04-27 · corresponds to `v0.5.x`_
 - Multi-stream CPD (Xie & Siegmund 2013) for cross-strike coupling.
 - Event-level FDR threshold calibration (Harvey, Liu, Zhu 2016).
 
-**Sign-convention pitfall** (cost an investigation): the GexBot `/maxchange` value field uses an INVERTED sign relative to "direction of imbalance change at the strike." Empirically verified on three live screenshots. The renderer negates the raw value before all downstream processing. See the comment in `delta.html` (search "API returns raw with inverted sign") and the corresponding rule in `CLAUDE.md`.
+**Sign-convention pitfall** (cost an investigation): the GexBot `/maxchange` value field appears to use an INVERTED sign relative to "direction of imbalance change at the strike," based on three live screenshots. The renderer negates raw before all downstream processing (`dir = -raw`). **A later observation (a clean pink → cyan pump producing red dots instead of green) cast doubt on this.** A debug logger is wired into `delta.html` (commit `54ba812`, activate via `?dbg=STRIKE` URL param) to capture API ground truth — the verification has not yet been run. The auto-memory file `todo_verify_maxch_sign.md` tracks this open item.
 
-The full reference list, ARL calibration targets, and trade-off notes are mirrored in the user's auto-memory at `<USER_HOME>/.claude/projects/.../memory/maxch_design_decision.md` and should be re-read before any iteration on the noise-filtering layer.
+**Event detectors complement persistence (v0.6.0+):** the CUSUM presets are by design slow — they require multi-second sustained activity to fire. That filters fast events like pumps out as potential noise. Three event detectors were added alongside (not replacing) the CUSUM family:
+- **`burst`** — sliding-60s velocity z-score on total firing magnitude. Fires at z ≥ 2.5, glyphs at strikes contributing ≥ 15 % of the spike.
+- **`swarm`** — cluster detector. ≥ 2 same-sign firing strikes within ±5 price points, each ≥ 5 % of session max-abs.
+- **`pump`** — strict combination: burst (z ≥ 2.0, lowered since combined) AND swarm AND cluster within ±0.5 % of latest spot.
+
+Event detectors are simpler statistics than CUSUM (running z, cluster count) and aren't ARL-calibrated. They were chosen for responsiveness on sharp events. Parameters are reasonable defaults; future work could ARL-calibrate on recorded sessions.
+
+The full reference list, ARL calibration targets, and trade-off notes for the persistence layer are mirrored in the user's auto-memory at `<USER_HOME>/.claude/projects/.../memory/maxch_design_decision.md` and should be re-read before any iteration on the noise-filtering layer.
 
 ---
 

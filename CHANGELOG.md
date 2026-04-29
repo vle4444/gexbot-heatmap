@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.2] — Remove session minimap
+
+The 80px-tall always-visible session-overview strip added in v0.5.0 is
+removed. It briefly served as a navigation aid, but in practice the
+focus is on the main heatmap, and the same use cases are covered by
+`Col px = fit` (auto-fits the buffer) and `Col px = 1d` (fixed
+one-session layout). Removing it gives the main heatmap back the
+~80px of vertical real estate.
+
+### What's gone
+- `#mm` HTML container, `<canvas id="minimap">`, `#mm-viewport`,
+  `#mm-label` — and their CSS.
+- `mmCV` / `mmCX` references in `resize()`.
+- `renderMinimap()` function and its call from `render()`.
+- `setMinimapCenter()` and the click/drag handlers on the minimap.
+- "Minimap (session strip)" section in the help overlay.
+
+### What's preserved
+- All sub-pixel `Col px` aggregation logic (powered the minimap, still
+  powers the main heatmap's `fit` / `1d` modes).
+- All MaxCh detector modes — they never used the minimap.
+- Auto-save / RESTORE — independent of the minimap; still works.
+
 ## [0.6.1] — Auto-saved sessions (browser IndexedDB) + RESTORE button
 
 ### New
