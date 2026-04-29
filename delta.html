@@ -91,9 +91,8 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
 #mm-viewport {
   position: absolute; top: 0; bottom: 0; pointer-events: none;
-  border-left: 2px solid #60b8ff; border-right: 2px solid #60b8ff;
-  background: rgba(96,184,255,0.08);
-  box-shadow: 0 0 0 9999px rgba(0,0,0,0.45) inset;
+  border: 2px solid #60b8ff;
+  background: rgba(96,184,255,0.10);
   display: none;
 }
 #mm-label {
@@ -1051,7 +1050,12 @@ function renderHeat() {
   // a single source snapshot, as before.
   const cellSize = colW * dpr;
   const colWd  = (cellSize >= 1) ? Math.max(1, Math.round(cellSize)) : 1;
-  const binSize = (cellSize >= 1) ? 1 : Math.max(1, Math.round(1 / cellSize));
+  // ceil (not round) — cellSize < 1 means each source snapshot needs less
+  // than one device pixel, so we must aggregate ≥ 2:1. round() gives binSize=1
+  // for cellSize in (0.67, 1) which produces "want sub-pixel but don't
+  // actually aggregate", silently truncating snapshots beyond drawWd. ceil()
+  // guarantees every source snapshot lands in some bin.
+  const binSize = (cellSize >= 1) ? 1 : Math.max(2, Math.ceil(1 / cellSize));
   // Effective CSS metrics — what the heatmap *actually* occupies after
   // device-pixel rounding. Without these the spot trace and time-axis ticks
   // (which live in CSS space) drift against the heatmap columns on
@@ -1953,35 +1957,17 @@ function renderMinimap() {
   const Wd = mmCV.width;
   const Hd = mmCV.height;
   const drawHd = Hd;
-  // Use the full-session yDomain — derive a min/max from all snapshots so the
-  // minimap shows the session in one frame regardless of the main heatmap's
-  // current zoom.
-  let yMin = Infinity, yMax = -Infinity;
-  for (const s of snapshots) {
-    for (const st of s.strikes) {
-      if (st.price < yMin) yMin = st.price;
-      if (st.price > yMax) yMax = st.price;
-    }
-  }
-  if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
-    mmCX.setTransform(1, 0, 0, 1, 0, 0);
-    mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
-    document.getElementById('mm-viewport').style.display = 'none';
-    return;
-  }
-  const yRange = yMax - yMin;
-  const yToPxMM = (yv) => drawHd * (1 - (yv - yMin) / yRange);
-
-  // Aggregation: each output device pixel column covers binSize source snaps.
-  const total   = snapshots.length;
-  const nCols   = Wd;
-  const binSize = Math.max(1, Math.ceil(total / nCols));
-
-  // Find max-abs across the session for color normalization.
+  // Build per-strike max-|vol| across the whole session in one pass,
+  // plus the session-wide max (for color normalization). This drives both
+  // the y-domain (focus to active strikes) and the minimap's color scale.
+  const strikeMaxAbs = new Map();
   let sessionMax = 0;
   for (const s of snapshots) {
     for (const st of s.strikes) {
       const a = Math.abs(st.vol);
+      if (a === 0) continue;
+      const cur = strikeMaxAbs.get(st.price) || 0;
+      if (a > cur) strikeMaxAbs.set(st.price, a);
       if (a > sessionMax) sessionMax = a;
     }
   }
@@ -1991,6 +1977,44 @@ function renderMinimap() {
     document.getElementById('mm-viewport').style.display = 'none';
     return;
   }
+
+  // Focus y-domain to strikes carrying ≥ 5% of session max-abs. Cuts the dead
+  // OTM tails so the active band fills the strip vertically. Falls back to
+  // the full strike range if the filter removes everything (very early in
+  // a session when no strike has accumulated meaningful magnitude yet).
+  const focusCutoff = sessionMax * 0.05;
+  let yMin = Infinity, yMax = -Infinity;
+  for (const [strike, maxAbs] of strikeMaxAbs) {
+    if (maxAbs >= focusCutoff) {
+      if (strike < yMin) yMin = strike;
+      if (strike > yMax) yMax = strike;
+    }
+  }
+  if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
+    for (const strike of strikeMaxAbs.keys()) {
+      if (strike < yMin) yMin = strike;
+      if (strike > yMax) yMax = strike;
+    }
+  }
+  if (!isFinite(yMin) || !isFinite(yMax) || yMax <= yMin) {
+    mmCX.setTransform(1, 0, 0, 1, 0, 0);
+    mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
+    document.getElementById('mm-viewport').style.display = 'none';
+    return;
+  }
+  // Padding: 10% of the focused range, with a 2-pt floor so very narrow
+  // active bands don't render as paper-thin.
+  const focusedRange = yMax - yMin;
+  const padding = Math.max(2, focusedRange * 0.10);
+  yMin -= padding;
+  yMax += padding;
+  const yRange = yMax - yMin;
+  const yToPxMM = (yv) => drawHd * (1 - (yv - yMin) / yRange);
+
+  // Aggregation: each output device pixel column covers binSize source snaps.
+  const total   = snapshots.length;
+  const nCols   = Wd;
+  const binSize = Math.max(1, Math.ceil(total / nCols));
 
   mmCX.setTransform(1, 0, 0, 1, 0, 0);
   mmCX.fillStyle = '#000'; mmCX.fillRect(0, 0, Wd, Hd);
@@ -2361,7 +2385,7 @@ function renderMetrics() {
   const cw       = effectiveColW();
   const cellSize = cw * dpr;
   const colWd    = (cellSize >= 1) ? Math.max(1, Math.round(cellSize)) : 1;
-  const binSize  = (cellSize >= 1) ? 1 : Math.max(1, Math.round(1 / cellSize));
+  const binSize  = (cellSize >= 1) ? 1 : Math.max(2, Math.ceil(1 / cellSize));
   const effColW  = colWd / dpr;
   const effPAX   = Math.round(PAX * dpr) / dpr;
   const drawW    = heatCV.clientWidth - PAX - LGAP;

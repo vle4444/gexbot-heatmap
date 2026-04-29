@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.3] — Minimap & `fit` mode bug fixes
+
+### Fixes
+- **`Col px = fit` now actually fits the whole session.** The aggregation
+  branch used `Math.round(1 / cellSize)` for `binSize`, which evaluated to
+  `1` for `cellSize ∈ (0.67, 1)` — leaving the renderer "wanting" sub-pixel
+  rendering but not actually aggregating. Snapshots beyond the canvas
+  width were silently truncated. Switched to `Math.ceil` with a floor of 2
+  so any sub-1 cellSize forces real aggregation, in both `renderHeat` and
+  the `renderMetrics` mouse-handler helper.
+- **Minimap viewport rectangle visible again.** The previous CSS used
+  `box-shadow: 0 0 0 9999px rgba(0,0,0,0.45) inset` to dim the area
+  outside the rectangle — but `inset` darkens the *inside* of the
+  element, so the rectangle's interior went near-black instead of the
+  exterior. Replaced with a clean border + faint translucent fill, no
+  inset shadow.
+- **Minimap y-domain focuses on active strikes.** Was using the full
+  observed strike range across the session, which left huge dead margins
+  for assets like SPX where activity concentrates in a narrow band. Now
+  computes per-strike max-|vol| across the session, drops strikes below
+  5% of session max-abs, uses min/max of the survivors with ±10% padding
+  (floor at 2 points). Falls back to the full range if the filter would
+  remove everything (early session, no significant magnitude yet).
+
 ## [0.5.2] — MaxCh: three quieter presets above `strict`
 
 ### Why
