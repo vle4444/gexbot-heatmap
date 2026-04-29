@@ -3,6 +3,10 @@
 .env.local
 *.key
 
+# Personal Claude Code overrides — gitignored by convention
+CLAUDE.local.md
+.claude/CLAUDE.local.md
+
 # Recorder output — large, per-user
 data/
 

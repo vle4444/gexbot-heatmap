@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.1] — Docs reorganization: lean `CLAUDE.md` + `docs/HISTORY.md` split
+
+### Why
+The previous `CLAUDE.md` (~330 lines) had grown into a narrative handover doc
+mixing always-needed operational rules with deep design history. Per the
+broader Claude Code convention, files >150–200 instructions start losing
+adherence. Split into two files so the always-loaded prompt stays lean while
+the design narrative remains accessible on demand.
+
+### Changes
+- **`CLAUDE.md`** — rewritten to ~70 lines following the established Claude
+  Code template: Stack, Commands, Architecture, Rules, Workflow, Out of
+  scope, Cross-session memory. Pure operational content. The hard rules
+  block consolidates the "use `??` not `||`," DPR canvas math,
+  `gexbot_custom_` token gotcha, MaxCh sign-convention warning, and the
+  no-dependencies / no-framework constraints.
+- **`docs/HISTORY.md`** (new) — design rationale, MaxCh research backing,
+  resolved-bug log, deferred items, and the commercial-product track
+  context. Linked from `CLAUDE.md`; Claude reads on demand when a task
+  touches MaxCh, sign conventions, or any past decision.
+- `.gitignore` — adds `CLAUDE.local.md` and `.claude/CLAUDE.local.md` so
+  personal Claude Code overrides don't get committed.
+
+### No behavior change
+This is a docs-only release. No JS, HTML, CSS, or `server.js` changes. The
+existing rich content all moves to `docs/HISTORY.md` — nothing is lost.
+
 ## [0.5.0] — Full-session zoom: sub-pixel `Col px`, aggregation, and minimap
 
 ### Sub-pixel `Col px` with max-abs aggregation (delta.html)
