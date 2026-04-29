@@ -374,14 +374,21 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh persistence filter. CUSUM + hysteresis per strike: a glyph appears only after the strike has been firing across multiple buckets for several seconds, and only disappears once activity drops well below the entry threshold. Eliminates per-snapshot flicker. loose=fast trigger, more events; normal=balanced default; strict=only the strongest sustained events; tight/severe/extreme=progressively quieter (raised h and k) for very busy sessions.">
+    <select id="sMaxCh" title="MaxCh detection. CUSUM presets (loose→extreme) flag persistent multi-bucket flow. Event detectors (burst / swarm / pump) flag sudden coordinated activity and stay quiet in steady state — useful for catching pumps in advance.">
       <option value="off">off</option>
-      <option value="loose">loose</option>
-      <option value="normal" selected>normal</option>
-      <option value="strict">strict</option>
-      <option value="tight">tight</option>
-      <option value="severe">severe</option>
-      <option value="extreme">extreme</option>
+      <optgroup label="Persistence (CUSUM + hysteresis)">
+        <option value="loose">loose</option>
+        <option value="normal" selected>normal</option>
+        <option value="strict">strict</option>
+        <option value="tight">tight</option>
+        <option value="severe">severe</option>
+        <option value="extreme">extreme</option>
+      </optgroup>
+      <optgroup label="Event detectors">
+        <option value="burst">burst</option>
+        <option value="swarm">swarm</option>
+        <option value="pump">pump</option>
+      </optgroup>
     </select>
   </div>
 
@@ -613,9 +620,18 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
       <dt>extreme</dt><dd>Only the most persistent multi-bucket events survive — minutes of sustained 3+-bucket dominance at the same strike. Most sessions will show very few glyphs. <span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
     </dl>
     <p>The added <b>tight / severe / extreme</b> tiers extend the same CUSUM + hysteresis machinery, escalating <i>h</i> (decision threshold — primary knob, ARL₀ grows ~exponentially in <i>h</i>) and then <i>k</i> (reference value, raises the noise-floor each accumulator must clear per snapshot). Use when even <code>strict</code> is producing too many glyphs.</p>
+
+    <h3>Event detectors — burst / swarm / pump</h3>
+    <p>The CUSUM presets above are <i>persistence</i> detectors — they require multi-second sustained activity before lighting up, which by design <b>filters out fast events like pumps</b>. The event detectors below complement that by firing on sudden coordinated activity and staying quiet in steady state.</p>
+    <dl>
+      <dt>burst</dt><dd>Velocity z-score across all firing strikes. Sums |dir| over each snapshot, tracks a sliding 60-snap mean and σ, fires when the current snap's total exceeds <b>mean + 2.5σ</b>. Glyphs render at strikes contributing ≥ 15% of the spike's total magnitude. Catches general activity surges anywhere in the chain. Quiet because it normalizes against recent baseline.</dd>
+      <dt>swarm</dt><dd>Cluster detector. Fires when ≥ 2 same-sign firing strikes sit within ±5 price points of each other in the same snapshot, each carrying ≥ 5% of session max-abs. Catches "sweep" patterns where flow lights up a row of adjacent strikes simultaneously — signature of aggressive directional trading. Quiet because random single-strike noise rarely clusters.</dd>
+      <dt>pump <span style="color:#9aa">— most stringent</span></dt><dd>Strict combination: <i>burst</i> condition (z ≥ 2.0, lowered slightly since combined) AND <i>swarm</i> condition AND the cluster center is within ±0.5% of latest spot. Designed for genuine pump precursors — coordinated near-spot directional surges. Will fire least often; expect long quiet periods punctuated by a few clean events per session.</dd>
+    </dl>
+    <p>Event detectors and CUSUM presets answer different questions. Use a CUSUM preset for "where is flow building over time"; use an event detector for "is something happening right now." They're mutually exclusive in the dropdown — pick one based on what you're watching for.</p>
     <p><b>Glyph encoding</b>: color = direction of imbalance change (green = call-side accumulation, red = put-side accumulation); size = magnitude of the most recent print at the strike, normalized over the visible window; opacity = same.</p>
     <p><b>Reading the layer:</b> a band of glyphs at one strike across many consecutive snapshots = real persistent flow. The hysteresis means the strike won't drop in/out frame-by-frame at the threshold boundary — it stays "on" once it crosses the entry bar, until activity decays well below it. Solid clusters lining up vertically with the brightest heatmap bands are the "where the action is" strikes.</p>
-    <p><b>Theory note</b>: the CUSUM detector (Page 1954) is minimax-optimal for change detection subject to a false-alarm bound (Lorden 1971); hysteresis (Schmitt 1938) is the canonical display-layer debouncer. Picked over Bayesian online changepoint detection (Adams &amp; MacKay 2007) and BVP-style multi-stream detectors (Xie &amp; Siegmund 2013) for simplicity — both available as upgrades if needed. Wavelets and microstructure-noise filters (Aït-Sahalia / Mykland / Zhang) and VPIN solve adjacent but distinct problems.</p>
+    <p><b>Theory note</b>: the CUSUM detector (Page 1954) is minimax-optimal for change detection subject to a false-alarm bound (Lorden 1971); hysteresis (Schmitt 1938) is the canonical display-layer debouncer. Picked over Bayesian online changepoint detection (Adams &amp; MacKay 2007) and BVP-style multi-stream detectors (Xie &amp; Siegmund 2013) for simplicity — both available as upgrades if needed. Wavelets and microstructure-noise filters (Aït-Sahalia / Mykland / Zhang) and VPIN solve adjacent but distinct problems. The event detectors are simpler statistics (running z-score, cluster count) chosen for responsiveness rather than minimax optimality.</p>
 
     <h2>Keyboard</h2>
     <dl>
@@ -1651,6 +1667,82 @@ function renderHeat() {
   // even at MAX_SNAPS = 20000 over hundreds of strikes.
   {
     const maxChSel = document.getElementById('sMaxCh').value;
+
+    // Shared render: takes a snapStates array (length nCols, each entry an
+    // array of {strike, state, mag} or undefined) plus a global magnitude
+    // reference, draws halo'd circular glyphs at each (output-column, strike)
+    // pair with size + opacity scaled by magnitude/globalMaxMag and color by
+    // sign of `state`. All MaxCh modes — CUSUM presets and event detectors —
+    // produce the same shape and call this helper.
+    const renderSnapStates = (snapStates, globalMaxMag, label) => {
+      if (!(globalMaxMag > 0)) return;
+      heatCX.save();
+      let hasAnyVisible = false;
+      for (let k = 0; k < nCols; k++) {
+        const list = snapStates[k];
+        if (!list || !list.length) continue;
+        const binStart = startI + k * binSize;
+        if (binStart >= endI) break;
+        const repCi = Math.min(endI - 1, binStart + binSize - 1);
+        const spot = snapshots[repCi].meta.spot || 0;
+        const x    = effPAX + k * effColW + effColW / 2;
+        for (const { strike, state, mag } of list) {
+          const yv = yValue(strike, spot);
+          if (yv < yDomain.min || yv > yDomain.max) continue;
+          const y     = yToPx(yv, H);
+          const norm  = mag / globalMaxMag;
+          const r     = 2.5 + 4.0 * Math.sqrt(norm);
+          const alpha = 0.50 + 0.50 * Math.sqrt(norm);
+          heatCX.beginPath();
+          heatCX.arc(x, y, r + 1.4, 0, Math.PI * 2);
+          heatCX.fillStyle = 'rgba(0,0,0,0.85)';
+          heatCX.fill();
+          heatCX.beginPath();
+          heatCX.arc(x, y, r, 0, Math.PI * 2);
+          const rgb = state > 0 ? '48,255,112' : '255,68,40';
+          heatCX.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
+          heatCX.fill();
+          hasAnyVisible = true;
+        }
+      }
+      if (hasAnyVisible) {
+        heatCX.fillStyle = '#a0d8ff';
+        heatCX.font      = 'bold 11px Courier New';
+        heatCX.textAlign = 'right';
+        heatCX.fillText(`ΔMaxCh ${label}`, W - LGAP - 4, 28);
+      }
+      heatCX.restore();
+    };
+
+    // ── Per-snapshot bucket aggregation. Used by every MaxCh mode. ──
+    // Returns Map<strike, {count, posVotes, negVotes, absSum, dirSum, maxAbs, tieBreak}>.
+    const aggSnapBuckets = (mp) => {
+      const fired = new Map();
+      if (!mp) return fired;
+      for (let b = 0; b < 6; b++) {
+        const e = mp[b];
+        if (!e) continue;
+        const strike = parseFloat(e[0]);
+        const raw    = parseFloat(e[1]);
+        if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
+        const dir = -raw; // sign-convention inversion (see CLAUDE.md)
+        const cur = fired.get(strike) || {
+          count: 0, posVotes: 0, negVotes: 0, absSum: 0, dirSum: 0, maxAbs: 0, tieBreak: 0,
+        };
+        cur.count++;
+        cur.absSum += Math.abs(dir);
+        cur.dirSum += dir;
+        if (dir >= 0) cur.posVotes++; else cur.negVotes++;
+        const mag = Math.abs(dir);
+        if (mag > cur.maxAbs) {
+          cur.maxAbs   = mag;
+          cur.tieBreak = dir >= 0 ? 1 : -1;
+        }
+        fired.set(strike, cur);
+      }
+      return fired;
+    };
+
     // CUSUM ARL₀ (mean time between false alarms) grows roughly exponentially
     // in h and quadratically in k, so threshold is the primary stringency knob.
     // Keep hLow ≈ hHigh/2 so re-entry behavior matches the existing presets.
@@ -1764,45 +1856,213 @@ function renderHeat() {
         }
       }
 
-      // Render glyphs.
-      if (globalMaxMag > 0) {
-        heatCX.save();
-        let hasAnyVisible = false;
-        for (let k = 0; k < nCols; k++) {
-          const list = snapStates[k];
-          if (!list || !list.length) continue;
-          const binStart = startI + k * binSize;
-          if (binStart >= endI) break;
-          const repCi = Math.min(endI - 1, binStart + binSize - 1);
-          const spot = snapshots[repCi].meta.spot || 0;
-          const x    = effPAX + k * effColW + effColW / 2;
-          for (const { strike, state, mag } of list) {
-            const yv = yValue(strike, spot);
-            if (yv < yDomain.min || yv > yDomain.max) continue;
-            const y     = yToPx(yv, H);
-            const norm  = mag / globalMaxMag;
-            const r     = 2.5 + 4.0 * Math.sqrt(norm);
-            const alpha = 0.50 + 0.50 * Math.sqrt(norm);
-            heatCX.beginPath();
-            heatCX.arc(x, y, r + 1.4, 0, Math.PI * 2);
-            heatCX.fillStyle = 'rgba(0,0,0,0.85)';
-            heatCX.fill();
-            heatCX.beginPath();
-            heatCX.arc(x, y, r, 0, Math.PI * 2);
-            const rgb = state > 0 ? '48,255,112' : '255,68,40';
-            heatCX.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
-            heatCX.fill();
-            hasAnyVisible = true;
+      renderSnapStates(snapStates, globalMaxMag, maxChSel);
+    }
+
+    // ── Event detector: BURST ──────────────────────────────────────────
+    // Velocity z-score on total firing magnitude. For each snapshot, sum
+    // |dir| across all firing strikes; track a sliding 60-snap mean/σ;
+    // trigger when current snap's total exceeds mean + Z_THRESHOLD·σ.
+    // Glyphs render at strikes contributing ≥ CONTRIB_PCT of the spike.
+    // Designed to stay quiet in steady state (z normalizes against recent
+    // baseline) and fire on sudden coordinated activity surges.
+    if (maxChSel === 'burst' || maxChSel === 'pump') {
+      const HISTORY = 60;
+      const MIN_HIST = 15;
+      const Z_THRESHOLD = (maxChSel === 'pump') ? 2.0 : 2.5;
+      const CONTRIB_PCT = 0.15;
+      const hist = [];
+      const burstSnapStates = new Array(nCols);
+      let burstGlobalMaxMag = 0;
+      // For pump mode we also need swarm-cluster + near-spot conditions;
+      // burst's snapStates feeds into the pump merge below.
+      const burstTriggered = new Array(nCols);
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+        let totalDir = 0;
+        for (const info of fired.values()) totalDir += info.absSum;
+
+        hist.push(totalDir);
+        if (hist.length > HISTORY) hist.shift();
+
+        let triggered = false;
+        if (hist.length >= MIN_HIST) {
+          let sum = 0, sumSq = 0;
+          for (const t of hist) { sum += t; sumSq += t * t; }
+          const mean     = sum / hist.length;
+          const variance = (sumSq / hist.length) - mean * mean;
+          const sigma    = Math.max(1e-9, Math.sqrt(Math.max(0, variance)));
+          const z        = (totalDir - mean) / sigma;
+          triggered      = (z >= Z_THRESHOLD && totalDir > 0);
+        }
+
+        if (triggered && ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const contribThresh = totalDir * CONTRIB_PCT;
+              const list = [];
+              for (const [strike, info] of fired) {
+                if (info.absSum >= contribThresh) {
+                  list.push({
+                    strike,
+                    state: info.dirSum >= 0 ? 1 : -1,
+                    mag:   info.absSum,
+                  });
+                  if (info.absSum > burstGlobalMaxMag) burstGlobalMaxMag = info.absSum;
+                }
+              }
+              if (list.length) {
+                burstSnapStates[k] = list;
+                burstTriggered[k]  = true;
+              }
+            }
           }
         }
-        if (hasAnyVisible) {
-          heatCX.fillStyle = '#a0d8ff';
-          heatCX.font      = 'bold 11px Courier New';
-          heatCX.textAlign = 'right';
-          heatCX.fillText(`ΔMaxCh ${maxChSel}`, W - LGAP - 4, 28);
-        }
-        heatCX.restore();
       }
+
+      if (maxChSel === 'burst') {
+        renderSnapStates(burstSnapStates, burstGlobalMaxMag, 'burst');
+      } else {
+        // 'pump' mode — defer rendering until merged with swarm + near-spot below.
+        var __pumpBurstStates = burstSnapStates;
+        var __pumpBurstMax    = burstGlobalMaxMag;
+        var __pumpBurstFlag   = burstTriggered;
+      }
+    }
+
+    // ── Event detector: SWARM ──────────────────────────────────────────
+    // Cluster detector. For each snapshot, group same-sign firing strikes
+    // by proximity (≤ CLUSTER_RANGE_PTS apart). When ≥ CLUSTER_SIZE same-
+    // sign strikes form a contiguous cluster with each member carrying
+    // ≥ MIN_MAG_PCT × session-max-abs, render glyphs at all members.
+    // Catches "sweeping" patterns where flow lights up multiple adjacent
+    // strikes in unison — signature of aggressive directional trading.
+    if (maxChSel === 'swarm' || maxChSel === 'pump') {
+      const CLUSTER_SIZE      = 2;
+      const CLUSTER_RANGE_PTS = 5;
+      const MIN_MAG_PCT       = 0.05;
+
+      // Session max-abs (across all firing entries).
+      let sessionMaxAbs = 0;
+      for (const s of snapshots) {
+        const mp = s.meta.maxPriors;
+        if (!mp) continue;
+        for (let b = 0; b < 6; b++) {
+          const e = mp[b];
+          if (!e) continue;
+          const a = Math.abs(parseFloat(e[1]));
+          if (a > sessionMaxAbs) sessionMaxAbs = a;
+        }
+      }
+      const minMag = sessionMaxAbs * MIN_MAG_PCT;
+
+      const swarmSnapStates = new Array(nCols);
+      let swarmGlobalMaxMag = 0;
+      const swarmTriggered  = new Array(nCols);
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+        if (fired.size < CLUSTER_SIZE) continue;
+
+        // Filter by min magnitude, sort by strike.
+        const items = [];
+        for (const [strike, info] of fired) {
+          if (info.absSum >= minMag) {
+            items.push({
+              strike,
+              sign: info.dirSum >= 0 ? 1 : -1,
+              mag:  info.absSum,
+            });
+          }
+        }
+        if (items.length < CLUSTER_SIZE) continue;
+        items.sort((a, b) => a.strike - b.strike);
+
+        // Greedy cluster build: same-sign + within range of last cluster member.
+        const clusters = [];
+        let cur = null;
+        for (const it of items) {
+          if (cur && cur.sign === it.sign && (it.strike - cur.lastStrike) <= CLUSTER_RANGE_PTS) {
+            cur.members.push(it);
+            cur.lastStrike = it.strike;
+          } else {
+            cur = { sign: it.sign, lastStrike: it.strike, members: [it] };
+            clusters.push(cur);
+          }
+        }
+
+        // Emit glyphs for clusters meeting the size requirement.
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const c of clusters) {
+                if (c.members.length >= CLUSTER_SIZE) {
+                  for (const m of c.members) {
+                    list.push({ strike: m.strike, state: c.sign, mag: m.mag });
+                    if (m.mag > swarmGlobalMaxMag) swarmGlobalMaxMag = m.mag;
+                  }
+                }
+              }
+              if (list.length) {
+                swarmSnapStates[k] = list;
+                swarmTriggered[k]  = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (maxChSel === 'swarm') {
+        renderSnapStates(swarmSnapStates, swarmGlobalMaxMag, 'swarm');
+      } else {
+        // 'pump' mode — merge swarm + burst + spot-proximity gate.
+        var __pumpSwarmStates = swarmSnapStates;
+        var __pumpSwarmMax    = swarmGlobalMaxMag;
+        var __pumpSwarmFlag   = swarmTriggered;
+      }
+    }
+
+    // ── Event detector: PUMP ──────────────────────────────────────────
+    // Strict combination: burst (z ≥ 2.0) AND swarm (≥2 same-sign cluster)
+    // AND the cluster center is within ±0.5% of latest spot. Designed to
+    // catch genuine pump precursors — coordinated near-spot directional
+    // surges — and stay quiet otherwise. Will fire least often of the
+    // three event detectors.
+    if (maxChSel === 'pump') {
+      const NEAR_SPOT_PCT = 0.005; // ±0.5%
+      const pumpSnapStates = new Array(nCols);
+      let pumpGlobalMaxMag = 0;
+      for (let k = 0; k < nCols; k++) {
+        if (!__pumpBurstFlag[k] || !__pumpSwarmFlag[k]) continue;
+        const binStart = startI + k * binSize;
+        if (binStart >= endI) continue;
+        const repCi = Math.min(endI - 1, binStart + binSize - 1);
+        const spot  = snapshots[repCi].meta.spot || 0;
+        if (!(spot > 0)) continue;
+        const span  = spot * NEAR_SPOT_PCT;
+
+        // Intersect strikes that appear in BOTH burst and swarm lists for
+        // this column, AND lie within ±span of spot. Use swarm's mag (the
+        // detector that defines the cluster); burst is a velocity gate.
+        const burstStrikes = new Set((__pumpBurstStates[k] || []).map(e => e.strike));
+        const merged = [];
+        for (const e of (__pumpSwarmStates[k] || [])) {
+          if (!burstStrikes.has(e.strike)) continue;
+          if (Math.abs(e.strike - spot) > span) continue;
+          merged.push(e);
+          if (e.mag > pumpGlobalMaxMag) pumpGlobalMaxMag = e.mag;
+        }
+        if (merged.length) pumpSnapStates[k] = merged;
+      }
+      renderSnapStates(pumpSnapStates, pumpGlobalMaxMag, 'pump');
     }
   }
 

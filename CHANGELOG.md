@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.6.0] — MaxCh: event detectors (burst / swarm / pump)
+
+### Why
+The existing CUSUM presets are *persistence* detectors — they require
+multi-second sustained activity before firing, which by design filters
+out fast events like pumps. User reported that a clean ~16:09 pump
+(7140 flipping pink → cyan) didn't light up MaxCh at all on `normal`.
+Three new detectors complement the persistence layer by firing on sudden
+coordinated activity, staying quiet in steady state.
+
+### New detectors
+- **`burst`** — velocity z-score on total firing magnitude. Tracks a
+  sliding 60-snap mean and σ of `Σ |dir|` across all firing strikes;
+  fires when the current snap exceeds `mean + 2.5σ`. Glyphs render at
+  strikes contributing ≥ 15% of the spike. Catches activity surges
+  anywhere in the chain. Quiet because it normalizes against the recent
+  baseline.
+- **`swarm`** — cluster detector. Fires when ≥ 2 same-sign firing
+  strikes sit within ±5 price points of each other in the same snapshot,
+  each ≥ 5% of session max-abs. Catches "sweep" patterns where flow
+  lights up a row of adjacent strikes simultaneously — aggressive
+  directional trading signature. Quiet because random single-strike
+  noise rarely clusters.
+- **`pump`** — strict combination: `burst` AND `swarm` AND cluster
+  center within ±0.5% of latest spot. `burst` z lowered to 2.0 since
+  combined. Designed for genuine pump precursors — coordinated near-spot
+  directional surges. Will fire least often.
+
+### Implementation
+- All three modes share the per-snapshot bucket aggregation
+  (`aggSnapBuckets`) and the rendering path (`renderSnapStates`) with
+  the existing CUSUM presets. Each populates a `snapStates[k]` array of
+  `{strike, state, mag}` entries; the helper draws halo'd glyphs at
+  each (output-column, strike) pair.
+- Dropdown gets an `<optgroup>` split between "Persistence" and "Event
+  detectors" so the two families are visually distinct.
+- Help-overlay docs include a new section explaining the detector
+  triad, parameter rationale, and the "persistence vs event" distinction.
+
+### Notes
+- Event detectors and CUSUM presets are mutually exclusive in the
+  dropdown — pick one. Future: could add side-by-side rendering, but
+  starts to clutter the main view.
+- Parameters (z, cluster size/range, near-spot %) are reasonable
+  defaults but not literature-calibrated. Open question: ARL-style
+  threshold calibration on a recorded session would tighten these.
+
+### Debug instrumentation
+- Temporary console logger added to `ingest()` for verifying the API's
+  sign convention. Activate via `?dbg=STRIKE` URL param or
+  `window.__dbgStrike = N`. Strip after the sign convention is verified
+  against a clean event. Reminder is saved to the project memory store.
+
 ## [0.5.4] — `Col px = 1d` mode (fixed one-session layout)
 
 ### New
