@@ -412,6 +412,7 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
   <button class="btn" id="btnClear">CLEAR</button>
   <button class="btn" id="btnSave" title="Save current buffer as JSON">SAVE</button>
   <button class="btn" id="btnLoad" title="Load a saved session file">LOAD</button>
+  <button class="btn" id="btnRestore" title="Restore today's auto-saved session for the current ticker / expiry / overlay. Disabled until at least one snapshot is on disk for today's date." disabled>RESTORE</button>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
 
   <a href="/" class="navlink">◂ CLASSIC HEATMAP</a>
@@ -591,14 +592,16 @@ canvas#minimap { display: block; width: 100%; height: 100%; cursor: pointer; }
     <h2>Refresh</h2>
     <p>How often the browser polls the API. 1s is fine for State-tier data; lower-frequency if you want to reduce load.</p>
 
-    <h2>Session Save / Load</h2>
+    <h2>Session Save / Load / Restore</h2>
     <dl>
       <dt>SAVE</dt>
       <dd>Downloads the current snapshot buffer as a JSON file (<code>gexbot-TICKER-TIMESTAMP.json</code>). Includes ticker, expiry, overlay, and all snapshots in memory.</dd>
       <dt>LOAD</dt>
-      <dd>Opens a file picker, loads a previously saved session. Pauses live polling, switches Ticker/Expiry/Overlay to match the file, replaces the buffer. Click LIVE to resume appending new snapshots from where the file ended.</dd>
+      <dd>Opens a file picker, loads a previously saved session JSON. Pauses live polling, switches Ticker/Expiry/Overlay to match the file, replaces the buffer. Click LIVE to resume appending new snapshots from where the file ended.</dd>
+      <dt>RESTORE</dt>
+      <dd>Auto-saved local backup. Every snapshot is written to the browser's IndexedDB in the background, keyed by date + ticker + expiry + overlay. After a server restart or browser reload, this button re-enables itself with the count for today's session matching your current selection — click to repopulate the buffer. Sessions older than today are auto-purged on startup. Browser-local: closing the browser profile or clearing site data wipes it. Use SAVE for portable archives.</dd>
     </dl>
-    <div class="warn">Loading replaces the current buffer — save first if you want to keep it.</div>
+    <div class="warn">LOAD and RESTORE both replace the current buffer — SAVE first if you want a portable copy. All MaxCh detection modes (CUSUM presets and event detectors) work on restored data.</div>
 
     <h2>Level traces</h2>
     <dl>
@@ -694,6 +697,135 @@ function resize() {
   }
 }
 window.addEventListener('resize', () => { resize(); if (snapshots.length) render(); });
+
+// ═══════════════════════════════════════════════════════
+//  IDB PERSISTENCE — auto-save today's session, opt-in restore.
+//  Each ingested snapshot is fire-and-forget written to IndexedDB.
+//  On startup we purge anything older than today (keeps the DB lean)
+//  and surface a RESTORE button if today's session has accumulated for
+//  the current ticker/expiry/greek tuple. The existing SAVE/LOAD JSON
+//  buttons are untouched — this is a separate always-on backup layer.
+// ═══════════════════════════════════════════════════════
+const IDB_NAME  = 'gexbot-heatmap';
+const IDB_STORE = 'snapshots';
+let __idb = null;
+
+function dateYMD(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function openIdb() {
+  if (__idb) return Promise.resolve(__idb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        const store = db.createObjectStore(IDB_STORE, { autoIncrement: true });
+        store.createIndex('byKeyDate', ['ticker', 'expiry', 'greek', 'dateYMD']);
+      }
+    };
+    req.onsuccess = () => { __idb = req.result; resolve(__idb); };
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+function idbSaveSnap(snap, ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).add({
+      ticker, expiry, greek,
+      dateYMD: dateYMD(snap.ts),
+      ts: snap.ts,
+      snap,
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  }));
+}
+
+function idbCountToday(ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx    = db.transaction(IDB_STORE, 'readonly');
+    const idx   = tx.objectStore(IDB_STORE).index('byKeyDate');
+    const range = IDBKeyRange.only([ticker, expiry, greek, dateYMD(Date.now())]);
+    const req   = idx.count(range);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+
+function idbLoadToday(ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx    = db.transaction(IDB_STORE, 'readonly');
+    const idx   = tx.objectStore(IDB_STORE).index('byKeyDate');
+    const range = IDBKeyRange.only([ticker, expiry, greek, dateYMD(Date.now())]);
+    const req   = idx.getAll(range);
+    req.onsuccess = () => {
+      const rows = req.result.sort((a, b) => a.ts - b.ts);
+      resolve(rows.map(r => r.snap));
+    };
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+function idbPurgeOld() {
+  return openIdb().then(db => new Promise((resolve) => {
+    const today = dateYMD(Date.now());
+    const tx    = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const req   = store.openCursor();
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (!cur) return;
+      if (cur.value.dateYMD !== today) cur.delete();
+      cur.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => resolve(); // best-effort, never block startup
+  }));
+}
+
+function idbClearToday(ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve) => {
+    const tx    = db.transaction(IDB_STORE, 'readwrite');
+    const idx   = tx.objectStore(IDB_STORE).index('byKeyDate');
+    const range = IDBKeyRange.only([ticker, expiry, greek, dateYMD(Date.now())]);
+    const req   = idx.openCursor(range);
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (!cur) return;
+      cur.delete();
+      cur.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => resolve();
+  }));
+}
+
+// Refresh the RESTORE button's enabled state + label based on what's on
+// disk for the current ticker/expiry/greek tuple. Called on startup and
+// whenever those selectors change.
+function refreshRestoreButton() {
+  const btn = document.getElementById('btnRestore');
+  if (!btn) return;
+  const ticker = document.getElementById('sTicker').value;
+  const expiry = document.getElementById('sExpiry').value;
+  const greek  = document.getElementById('sGreek').value;
+  idbCountToday(ticker, expiry, greek).then(n => {
+    if (n > 0) {
+      btn.disabled    = false;
+      btn.textContent = `RESTORE (${n})`;
+    } else {
+      btn.disabled    = true;
+      btn.textContent = 'RESTORE';
+    }
+  }).catch(() => {
+    btn.disabled    = true;
+    btn.textContent = 'RESTORE';
+  });
+}
 
 // ═══════════════════════════════════════════════════════
 //  FETCH
@@ -797,6 +929,20 @@ function ingest(data, greek, mcData) {
     if (scrollOffset > 0) scrollOffset = Math.max(0, scrollOffset - 1);
   }
   if (followLive) scrollOffset = 0;
+
+  // Fire-and-forget IDB auto-save. Errors are swallowed (logged once at
+  // most via console.warn) to never block the live render path.
+  {
+    const tk = document.getElementById('sTicker').value;
+    const ex = document.getElementById('sExpiry').value;
+    const gk = document.getElementById('sGreek').value;
+    idbSaveSnap(snap, tk, ex, gk).catch(e => {
+      if (!window.__idbWarnOnce) {
+        console.warn('IDB auto-save failed (further errors silenced):', e);
+        window.__idbWarnOnce = true;
+      }
+    });
+  }
 
   // ── Debug instrumentation: log raw maxchange values for one strike ──
   // Activate by appending `?dbg=7140` (or any strike) to the URL, or by
@@ -2562,6 +2708,48 @@ document.getElementById('btnSave').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+// RESTORE — load today's IDB-buffered session for the current selection.
+// Behaves like a LOAD but pulls from local IndexedDB instead of a JSON
+// file. Pauses live polling so the user explicitly resumes via LIVE.
+document.getElementById('btnRestore').addEventListener('click', async () => {
+  const ticker = document.getElementById('sTicker').value;
+  const expiry = document.getElementById('sExpiry').value;
+  const greek  = document.getElementById('sGreek').value;
+  let restored;
+  try {
+    restored = await idbLoadToday(ticker, expiry, greek);
+  } catch (e) {
+    alert('Restore failed: ' + (e && e.message || e));
+    return;
+  }
+  if (!restored.length) {
+    alert('No auto-saved session found for the current ticker / expiry / overlay today.');
+    refreshRestoreButton();
+    return;
+  }
+
+  if (running) {
+    running = false; stopTimer();
+    const b = document.getElementById('btnLive');
+    b.textContent = '⏸ PAUSED';
+    b.classList.remove('on', 'pulse');
+  }
+
+  snapshots    = restored;
+  yDomain      = { min: 0, max: 0 };
+  zoomLock     = false;
+  colWOverride = null;
+  scrollOffset = 0;
+  followLive   = true;
+  for (const s of snapshots) refreshYDomain(s);
+
+  if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
+  document.getElementById('v-sn').textContent = snapshots.length;
+  document.getElementById('v-ts').textContent =
+    tsFormatter('hms').format(new Date(snapshots[snapshots.length - 1].ts));
+  render();
+});
+
 document.getElementById('btnLoad').addEventListener('click', () => {
   const input = document.createElement('input');
   input.type = 'file';
@@ -2633,6 +2821,9 @@ document.getElementById('btnLoad').addEventListener('click', () => {
     if (['sTicker','sExpiry','sGreek'].includes(id)) {
       snapshots = []; yDomain = { min: 0, max: 0 };
       zoomLock = false; colWOverride = null; scrollOffset = 0; followLive = true;
+      // The RESTORE button reflects the current ticker/expiry/greek tuple,
+      // so re-query its count whenever any of those change.
+      refreshRestoreButton();
     }
     if (id === 'sColW') colWOverride = null;
     if (id === 'sYAxis') { zoomLock = false; resetYDomain(); }
@@ -2642,6 +2833,11 @@ document.getElementById('btnLoad').addEventListener('click', () => {
     updateStats(snapshots.length ? snapshots[snapshots.length-1].meta : { spot: 0 });
   });
 });
+
+// Startup: purge any auto-saved sessions from prior days, then surface
+// today's count on the RESTORE button. Both are best-effort — failure
+// (no IDB support, quota exceeded, etc.) leaves the button disabled.
+idbPurgeOld().finally(() => refreshRestoreButton());
 
 // ═══════════════════════════════════════════════════════
 //  MOUSE

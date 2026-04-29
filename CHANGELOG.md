@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.6.1] — Auto-saved sessions (browser IndexedDB) + RESTORE button
+
+### New
+- Every snapshot is now written to the browser's **IndexedDB** in the
+  background (fire-and-forget), keyed by `(ticker, expiry, greek, date)`.
+  Survives server restarts, dashboard reloads, and tab refreshes.
+- New **`RESTORE`** button next to `LOAD`. On startup, the button is
+  enabled with the on-disk snap count for today's date matching the
+  current ticker/expiry/overlay selection — e.g. `RESTORE (1842)`.
+  Click to load. The button updates whenever the selectors change.
+- Old sessions (any `dateYMD < today`) are auto-purged on startup so
+  the database stays lean.
+- All MaxCh detection modes (CUSUM presets and event detectors) work
+  on restored data, since `meta.maxPriors` is part of the snapshot
+  and survives the IDB round-trip.
+
+### What it does NOT change
+- Existing `SAVE` / `LOAD` JSON workflow is untouched. Use those for
+  portable archives across machines / browsers.
+- `CLEAR` only wipes the in-memory buffer; the IDB record remains so
+  RESTORE can bring it back. Browser-level "clear site data" is the
+  only way to delete persisted sessions outside of the next-day purge.
+- Auto-save is always-on. There is no UI to disable it. Storage cost
+  is bounded by the next-day purge.
+
+### Notes
+- Storage estimate: ~5 KB per snap × 28k snaps × ~5 ticker tuples
+  = ~700 MB worst case before the daily purge. Most browsers handle
+  this; if quota errors appear they're logged once and silenced (the
+  live render path is never blocked).
+- `LOAD` (file-based) still works for cross-device restore. The two
+  mechanisms are complementary.
+
 ## [0.6.0] — MaxCh: event detectors (burst / swarm / pump)
 
 ### Why
