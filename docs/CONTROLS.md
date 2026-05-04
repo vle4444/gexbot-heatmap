@@ -8,9 +8,10 @@
 | Shift + Scroll | Zoom X-axis (column width) |
 | Ctrl + Scroll | Scroll through history |
 | Horizontal trackpad gesture | Scroll through history |
-| Drag | Pan Y-axis |
-| Alt + Drag | Pan X-axis (time) |
-| Drag in bottom time-axis strip | Pan X-axis (time) |
+| Drag in chart area | Pan Y-axis |
+| Alt + Drag in chart area | Pan X-axis (time) |
+| Drag in **right price-axis gutter** | Zoom Y (pull up = zoom in, down = zoom out) |
+| Drag in **bottom time-axis strip** | Zoom X (pull right = zoom in, left = zoom out) |
 | Drag right edge of profile panel | Resize profile panel |
 
 ## Keyboard
@@ -21,9 +22,9 @@
 | Shift + ← / → | Scroll history by 50 snapshots |
 | End | Jump to live edge |
 | Home | Jump to oldest buffered snapshot |
-| Esc | Close help overlay (delta.html only) |
+| Esc | Close help overlay |
 
-## Toolbar — common to both dashboards
+## Toolbar
 
 - **Ticker** — which instrument to poll. List is pre-set; edit in the HTML
   file to add more symbols supported by your subscription tier.
@@ -35,14 +36,14 @@
 - **Palette** — color scheme. GEX (green/red) is the convention; the
   others are aesthetic alternatives.
 - **Col px** — column width in pixels. Shift+Scroll does the same live.
-- **Strike px** *(delta.html only)* — caps each strike's vertical band height
+- **Strike px** — caps each strike's vertical band height
   in CSS pixels. `fit` (legacy default) fills the full slot between strikes —
   the continuous heat-field look. Numeric values (`2`–`12`) produce fixed
   bands with black gaps between strikes — a Bookmap-style ladder where each
   strike reads as a discrete level. The Gaussian blend kernel scales with this
   setting, so even in `Additive` or `Max` blend mode, neighbors won't bleed
   into each other when Strike px is small. Default: `4`.
-- **TZ** *(delta.html only)* — time zone for the x-axis, cursor hover tooltip,
+- **TZ** — time zone for the x-axis, cursor hover tooltip,
   and last-update stamp. Always 24-hour (HH:MM). `Local` uses the browser's
   default; named zones (NY, Chicago, London, Berlin, Tokyo, HK, UTC) pin the
   display regardless of the machine's clock.
@@ -50,7 +51,7 @@
 - **RESET ZOOM** — unlock Y-axis auto-range and jump to live.
 - **CLEAR** — empty the snapshot buffer.
 
-## delta.html — additional controls
+## Additional controls
 
 - **Measure**
   - *Raw GEX* — current value at each strike
@@ -96,8 +97,3 @@ through intermediate prices; it jumps between strikes. Segments break across
 gaps (missing values, or points outside the visible y-range) so you won't see
 long connecting lines across discontinuities when you scroll or zoom.
 
-## index.html — history buttons
-
-- **TODAY SO FAR** — load today's recorded snapshots and resume live
-- **LOAD DATE** — replace buffer with a past date (requires Quant subscription)
-- **+ PREPEND** — chain a past date before the current buffer

@@ -7,73 +7,122 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg:      #000000;
-  --panel:   #050505;
-  --border:  #2a2a2a;
-  --text:    #ffffff;
-  --dim:     #888888;
-  --accent:  #3090d0;
-  --green:   #30ff70;
-  --red:     #ff4428;
-  --yellow:  #ffd830;
-  --spot:    #a0d8ff;
-  --font:    'Courier New', Courier, monospace;
+  /* Dark theme (default) */
+  --bg:        #000000;
+  --bg2:       #060606;       /* toolbar / stats / footer */
+  --panel:     #050505;
+  --border:    #2a2a2a;
+  --text:      #ffffff;
+  --label:     #b8c4d4;
+  --dim:       #888888;
+  --accent:    #3090d0;
+  --green:     #30ff70;
+  --red:       #ff4428;
+  --yellow:    #ffd830;
+  --spot:      #a0d8ff;
+  --link:      #60b8ff;
+  --logo:      #60b8ff;
+  --logo-em:   #3080c8;
+  --tag:       #ff8840;
+  --btn-bg:    #000000;
+  --btn-on-bg: #0a2030;
+  --badge-bg:  #0a2030;
+  --code-bg:   #0a0a0a;
+  --tip-bg:    #050a12;
+  --warn-bg:   #120a05;
+  --resize-thumb: #555;
+  --overlay:   rgba(0,0,0,0.96);
+  --help-text: #ccc;
+  --help-em:   #fff;
+  --help-dd:   #bbb;
+  --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --mono:      "JetBrains Mono", "Consolas", "Roboto Mono", "Menlo", "Courier New", monospace;
 }
-html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+:root[data-theme="light"] {
+  --bg:        #ffffff;
+  --bg2:       #f6f7f9;
+  --panel:     #f0f1f4;
+  --border:    #d4d7dc;
+  --text:      #1a1c20;
+  --label:     #50606e;
+  --dim:       #6b7480;
+  --accent:    #1a6cb8;
+  --green:     #1a9c4a;
+  --red:       #c5301a;
+  --yellow:    #b88500;
+  --spot:      #1a6cb8;
+  --link:      #1a6cb8;
+  --logo:      #1a6cb8;
+  --logo-em:   #2980c8;
+  --tag:       #c25500;
+  --btn-bg:    #ffffff;
+  --btn-on-bg: #d6e8f6;
+  --badge-bg:  #e2eef9;
+  --code-bg:   #f0f3f7;
+  --tip-bg:    #e6f0fa;
+  --warn-bg:   #fdf0e3;
+  --resize-thumb: #b0b6be;
+  --overlay:   rgba(255,255,255,0.96);
+  --help-text: #2a2c30;
+  --help-em:   #000;
+  --help-dd:   #4a4c50;
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 15px; }
 #app { display: flex; flex-direction: column; height: 100vh; user-select: none; }
 
 /* toolbar */
 #toolbar {
-  background: #000; border-bottom: 1px solid var(--border);
+  background: var(--bg2); border-bottom: 1px solid var(--border);
   padding: 5px 10px; display: flex; align-items: center; gap: 9px;
   flex-shrink: 0; flex-wrap: wrap;
 }
-.logo { color: #60b8ff; font-size: 14px; font-weight: bold; letter-spacing: 2px; margin-right: 4px; white-space: nowrap; }
-.logo em { color: #3080c8; font-style: normal; }
-.logo .tag { color: #ff8840; font-size: 12px; margin-left: 6px; letter-spacing: 1.5px; }
+.logo { color: var(--logo); font-size: 15px; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; white-space: nowrap; }
+.logo em { color: var(--logo-em); font-style: normal; }
+.logo .tag { color: var(--tag); font-size: 13px; margin-left: 6px; letter-spacing: 0.5px; }
 .sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
-.ctrl { display: flex; align-items: center; gap: 4px; }
-.lbl { color: #fff; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; font-weight: bold; }
+.ctrl { display: flex; align-items: center; gap: 5px; }
+.lbl { color: var(--label); font-size: 13px; letter-spacing: 0; white-space: nowrap; font-weight: 500; }
 select {
-  background: #000; border: 1px solid var(--border); color: #fff;
-  padding: 3px 6px; font-family: var(--font); font-size: 13px; font-weight: bold;
-  border-radius: 1px; outline: none; cursor: pointer;
+  background: var(--btn-bg); border: 1px solid var(--border); color: var(--text);
+  padding: 4px 7px; font-family: var(--font); font-size: 14px; font-weight: 500;
+  border-radius: 2px; outline: none; cursor: pointer;
 }
 select:hover { border-color: var(--accent); }
 input[type="number"] {
-  background: #000; border: 1px solid var(--border); color: #fff;
-  padding: 3px 6px; font-family: var(--font); font-size: 13px; font-weight: bold;
-  border-radius: 1px; outline: none; width: 64px;
+  background: var(--btn-bg); border: 1px solid var(--border); color: var(--text);
+  padding: 4px 7px; font-family: var(--mono); font-size: 14px; font-weight: 500;
+  border-radius: 2px; outline: none; width: 70px;
 }
 input[type="number"]:hover, input[type="number"]:focus { border-color: var(--accent); }
 input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
 .btn {
-  background: #000; border: 1px solid var(--border); color: #fff;
-  padding: 3px 10px; font-family: var(--font); font-size: 12px; font-weight: bold;
-  border-radius: 1px; cursor: pointer; letter-spacing: 1px; white-space: nowrap;
+  background: var(--btn-bg); border: 1px solid var(--border); color: var(--text);
+  padding: 4px 11px; font-family: var(--font); font-size: 13px; font-weight: 600;
+  border-radius: 2px; cursor: pointer; letter-spacing: 0; white-space: nowrap;
 }
-.btn:hover { border-color: var(--accent); color: #a0d8ff; }
-.btn.on { background: #0a2030; border-color: #3090d0; color: #fff; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.on { background: var(--btn-on-bg); border-color: var(--accent); color: var(--text); }
 .btn.pulse { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
-.navlink { margin-left: auto; color: #60b8ff; text-decoration: none; font-size: 12px; letter-spacing: 1.5px; font-weight: bold; }
-.navlink:hover { color: #a0d8ff; }
+.navlink { margin-left: auto; color: var(--link); text-decoration: none; font-size: 13px; letter-spacing: 0; font-weight: 600; }
+.navlink:hover { color: var(--accent); }
 
 /* stats */
 #stats {
-  background: #000; border-bottom: 1px solid var(--border);
+  background: var(--bg2); border-bottom: 1px solid var(--border);
   padding: 5px 10px; display: flex; gap: 16px; flex-shrink: 0; align-items: center; flex-wrap: wrap;
 }
-.stat { display: flex; gap: 5px; align-items: baseline; }
-.slab { color: #fff; font-size: 11px; letter-spacing: 0.6px; font-weight: bold; }
-.sval { font-size: 13px; color: #fff; font-weight: bold; }
+.stat { display: flex; gap: 6px; align-items: baseline; }
+.slab { color: var(--label); font-size: 12px; letter-spacing: 0; font-weight: 500; }
+.sval { font-size: 14px; color: var(--text); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .sval.pos { color: var(--green); } .sval.neg { color: var(--red); }
 .sval.yel { color: var(--yellow); } .sval.spt { color: var(--spot); }
 #stats-r { margin-left: auto; display: flex; gap: 16px; }
 .badge {
-  background: #0a2030; border: 1px solid #3090d0; color: #a0d8ff;
-  padding: 2px 8px; font-size: 11px; letter-spacing: 1.5px; border-radius: 1px; font-weight: bold;
+  background: var(--badge-bg); border: 1px solid var(--accent); color: var(--accent);
+  padding: 2px 8px; font-size: 12px; letter-spacing: 0; border-radius: 2px; font-weight: 600;
 }
+.badge.delta-mode { background: var(--warn-bg); border-color: var(--tag); color: var(--tag); }
 
 /* main */
 #main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
@@ -90,82 +139,82 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 #resizer::before {
   content: ''; position: absolute; top: 50%; left: 2px;
   width: 3px; height: 40px; margin-top: -20px;
-  background: #555; border-radius: 1px;
+  background: var(--resize-thumb); border-radius: 1px;
 }
 
 /* overlays */
 #loading {
-  position: absolute; inset: 0; background: rgba(0,0,0,0.92);
+  position: absolute; inset: 0; background: var(--overlay);
   display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
-  color: #fff; letter-spacing: 2px; font-size: 11px;
+  color: var(--text); letter-spacing: 0.5px; font-size: 13px;
 }
 .ring {
   width: 22px; height: 22px; border-radius: 50%;
-  border: 2px solid var(--border); border-top-color: #3090d0;
+  border: 2px solid var(--border); border-top-color: var(--accent);
   animation: spin 0.75s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 #err {
-  position: absolute; inset: 0; background: rgba(0,0,0,0.94);
+  position: absolute; inset: 0; background: var(--overlay);
   display: none; flex-direction: column; align-items: center;
   justify-content: center; gap: 7px; padding: 24px; text-align: center;
 }
-.etitle { color: var(--red); font-size: 13px; letter-spacing: 2px; font-weight: bold; }
-.emsg { color: #d07060; font-size: 12px; max-width: 500px; line-height: 1.6; }
+.etitle { color: var(--red); font-size: 14px; letter-spacing: 0.5px; font-weight: 700; }
+.emsg { color: var(--red); opacity: 0.8; font-size: 13px; max-width: 500px; line-height: 1.6; }
 
 #footer {
-  background: #000; border-top: 1px solid var(--border);
+  background: var(--bg2); border-top: 1px solid var(--border);
   padding: 4px 10px; display: flex; justify-content: space-between;
-  flex-shrink: 0; color: #aaa; font-size: 11px; letter-spacing: 0.5px;
+  flex-shrink: 0; color: var(--dim); font-size: 12px; letter-spacing: 0;
 }
 
 /* ── Help overlay ───────────────────────────────── */
 #helpOverlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.96);
+  position: fixed; inset: 0; background: var(--overlay);
   z-index: 1000; overflow-y: auto; padding: 30px 20px;
   display: none;
 }
 #helpOverlay.open { display: block; }
 #helpInner {
   max-width: 880px; margin: 0 auto;
-  color: #ccc; font-family: var(--font); font-size: 13px; line-height: 1.65;
+  color: var(--help-text); font-family: var(--font); font-size: 14px; line-height: 1.65;
   position: relative; padding-bottom: 80px;
 }
-#helpInner h1 { color: #60b8ff; font-size: 20px; letter-spacing: 2px; margin-bottom: 6px; }
+#helpInner h1 { color: var(--logo); font-size: 22px; letter-spacing: 0; margin-bottom: 6px; }
 #helpInner h2 {
-  color: #ff8840; font-size: 15px; letter-spacing: 1.5px;
+  color: var(--tag); font-size: 17px; letter-spacing: 0;
   margin: 28px 0 8px; padding-bottom: 4px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
 }
 #helpInner h3 {
-  color: #a0d8ff; font-size: 13px; letter-spacing: 1px;
+  color: var(--accent); font-size: 14px; letter-spacing: 0;
   margin: 18px 0 6px;
 }
 #helpInner p { margin-bottom: 10px; }
-#helpInner b, #helpInner strong { color: #fff; }
+#helpInner b, #helpInner strong { color: var(--help-em); }
 #helpInner code {
-  background: #0a0a0a; border: 1px solid #2a2a2a;
-  padding: 1px 5px; font-family: var(--font); font-size: 12px;
-  color: #a0d8ff;
+  background: var(--code-bg); border: 1px solid var(--border);
+  padding: 1px 5px; font-family: var(--mono); font-size: 13px;
+  color: var(--accent);
 }
 #helpInner .tip {
-  border-left: 2px solid #3090d0; padding: 6px 10px; margin: 8px 0;
-  background: #050a12; color: #a0d8ff; font-size: 12px;
+  border-left: 2px solid var(--accent); padding: 6px 10px; margin: 8px 0;
+  background: var(--tip-bg); color: var(--accent); font-size: 13px;
 }
 #helpInner .warn {
-  border-left: 2px solid #ff8840; padding: 6px 10px; margin: 8px 0;
-  background: #120a05; color: #ffb080; font-size: 12px;
+  border-left: 2px solid var(--tag); padding: 6px 10px; margin: 8px 0;
+  background: var(--warn-bg); color: var(--tag); font-size: 13px;
 }
 #helpInner dl { margin: 6px 0 10px; }
-#helpInner dt { color: #fff; font-weight: bold; margin-top: 8px; }
-#helpInner dd { margin-left: 18px; color: #bbb; }
+#helpInner dt { color: var(--help-em); font-weight: 600; margin-top: 8px; }
+#helpInner dd { margin-left: 18px; color: var(--help-dd); }
 #btnCloseHelp {
   position: fixed; top: 20px; right: 30px; z-index: 1001;
-  background: #000; border: 1px solid var(--border); color: #fff;
-  padding: 6px 14px; font-family: var(--font); font-size: 13px; font-weight: bold;
-  cursor: pointer; letter-spacing: 2px; border-radius: 1px;
+  background: var(--btn-bg); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 14px; font-family: var(--font); font-size: 14px; font-weight: 600;
+  cursor: pointer; letter-spacing: 0; border-radius: 2px;
 }
-#btnCloseHelp:hover { border-color: var(--accent); color: #a0d8ff; }
+#btnCloseHelp:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -298,6 +347,8 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="electric" selected>Electric (cyan/magenta)</option>
       <option value="solar">Solar (yellow/violet)</option>
       <option value="icefire">Ice/Fire (blue/orange)</option>
+      <option value="hicontrast">Hi-contrast (white-tipped)</option>
+      <option value="stepped">Stepped (4 bands, lime/magenta)</option>
     </select>
   </div>
 
@@ -313,22 +364,22 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="ctrl">
     <span class="lbl" style="color:#ff8840">Blend</span>
     <select id="sBlend">
-      <option value="hard" selected>None (sharp)</option>
+      <option value="hard">None (sharp)</option>
       <option value="sum">Additive</option>
-      <option value="max">Max (sign-safe)</option>
+      <option value="max" selected>Max (sign-safe)</option>
     </select>
   </div>
 
   <div class="ctrl">
     <span class="lbl">Col px</span>
     <select id="sColW" title="Width per snapshot in CSS pixels. 'fit' auto-sizes to fit the entire current buffer. '1d' fixes the layout to one full US regular session (6.5h × 1s = 23400 snaps) regardless of how much data is buffered. Sub-pixel values (0.1 / 0.25 / 0.5) aggregate via max-abs per strike.">
-      <option value="fit">fit</option>
+      <option value="fit" selected>fit</option>
       <option value="1d">1d</option>
       <option value="0.1">0.1</option>
       <option value="0.25">0.25</option>
       <option value="0.5">0.5</option>
       <option value="1">1</option>
-      <option value="2" selected>2</option>
+      <option value="2">2</option>
       <option value="4">4</option>
       <option value="6">6</option>
       <option value="8">8</option>
@@ -396,8 +447,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <button class="btn" id="btnLoad" title="Load a saved session file">LOAD</button>
   <button class="btn" id="btnRestore" title="Restore today's auto-saved session for the current ticker / expiry / overlay. Disabled until at least one snapshot is on disk for today's date." disabled>RESTORE</button>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
-
-  <a href="/" class="navlink">◂ CLASSIC HEATMAP</a>
+  <button class="btn" id="btnTheme" title="Toggle light / dark theme" style="margin-left:auto">DARK</button>
 </div>
 
 <div id="stats">
@@ -508,7 +558,13 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </dl>
 
     <h2>Palette</h2>
-    <p>Color scheme for positive/negative values. GEX (green/red) is the convention; the others are aesthetic alternatives that use equally-saturated complementary hues with black at zero.</p>
+    <p>Color scheme for positive/negative values. GEX (green/red) is the convention; Electric, Solar, and Ice/Fire are aesthetic alternatives using equally-saturated complementary hues with black at zero.</p>
+    <dl>
+      <dt>Hi-contrast (white-tipped)</dt>
+      <dd>Both poles ramp toward near-white at peak. Peaks hit the highest luminance of any palette here, so big walls "burn brighter" against the black background and changes in the largest values are easier to spot. Sign carried by tint at sub-peak: yellow-white for +, pink-white for −.</dd>
+      <dt>Stepped (4 bands)</dt>
+      <dd>Quantizes |t| into 4 brightness bands (0.45, 0.65, 0.85, 1.0). Any non-zero value snaps to ≥45% brightness, so a wall popping into existence is loud rather than a soft fade-in. A wall crossing a band boundary produces a visible step, not a smooth shade, making magnitude changes easy to spot. Lime + / hot magenta −. Magnitude resolution is intentionally coarse — pair with a Trailing or Snapshot scale if you want band transitions to track local activity.</dd>
+    </dl>
 
     <h2>Gamma</h2>
     <p>Non-linearity of the color mapping. Controls whether brightness reflects value linearly or is compressed for perceptual lift.</p>
@@ -647,8 +703,11 @@ let timer        = null;
 // ═══════════════════════════════════════════════════════
 const heatCV = document.getElementById('heat'), heatCX = heatCV.getContext('2d');
 const profCV = document.getElementById('prof'), profCX = profCV.getContext('2d');
-let   PAX = 70, TAX = 22, LGAP = 20;   // CSS pixels
+let   PAX = 70, TAX = 24, LGAP = 20;   // CSS pixels
 let   dpr = 1;                          // updated on resize
+// Canvas font stacks. UI for labels/tags, NUM for ticks/values (tabular).
+const F_UI  = '-apple-system, "Segoe UI", system-ui, Arial, sans-serif';
+const F_NUM = '"Consolas", "Menlo", "Roboto Mono", "Courier New", monospace';
 
 function resize() {
   dpr = window.devicePixelRatio || 1;
@@ -1059,27 +1118,59 @@ function volAt(ci, strike, pvMaps) {
 // ═══════════════════════════════════════════════════════
 //  PALETTES
 // ═══════════════════════════════════════════════════════
+// Each palette returns { v, sat } where:
+//   sat = saturated target color [r,g,b] for sign(t) (constant per sign)
+//   v   = brightness fraction in [0, 1] after gamma
+// The themed renderer then composes:
+//   dark  → out_c = round(v * sat_c)             (ramp black → sat)
+//   light → out_c = round(255 - v*(255 - sat_c)) (ramp white → sat)
+const SAT_GEX_POS        = [25, 220, 55],   SAT_GEX_NEG        = [243, 60, 8];
+const SAT_ELECTRIC_POS   = [20, 230, 245],  SAT_ELECTRIC_NEG   = [245, 20, 220];
+const SAT_SOLAR_POS      = [245, 220, 30],  SAT_SOLAR_NEG      = [160, 40, 245];
+const SAT_ICEFIRE_POS    = [100, 195, 255], SAT_ICEFIRE_NEG    = [255, 130, 10];
+const SAT_HICONTRAST_POS = [240, 255, 150], SAT_HICONTRAST_NEG = [255, 150, 230];
+const SAT_STEPPED_POS    = [60, 255, 40],   SAT_STEPPED_NEG    = [255, 40, 220];
 function palette_gex(t, g) {
-  if (t >= 0) { const v = g === 1 ? t : Math.pow(t, g); return [Math.round(v*25), Math.round(v*220), Math.round(v*55)]; }
-  const v = g === 1 ? -t : Math.pow(-t, g); return [Math.round(v*243), Math.round(v*60), Math.round(v*8)];
+  const v = g === 1 ? Math.abs(t) : Math.pow(Math.abs(t), g);
+  return { v, sat: t >= 0 ? SAT_GEX_POS : SAT_GEX_NEG };
 }
 function palette_electric(t, g) {
-  if (t >= 0) { const v = g === 1 ? t : Math.pow(t, g); return [Math.round(v*20), Math.round(v*230), Math.round(v*245)]; }
-  const v = g === 1 ? -t : Math.pow(-t, g); return [Math.round(v*245), Math.round(v*20), Math.round(v*220)];
+  const v = g === 1 ? Math.abs(t) : Math.pow(Math.abs(t), g);
+  return { v, sat: t >= 0 ? SAT_ELECTRIC_POS : SAT_ELECTRIC_NEG };
 }
 function palette_solar(t, g) {
-  if (t >= 0) { const v = g === 1 ? t : Math.pow(t, g); return [Math.round(v*245), Math.round(v*220), Math.round(v*30)]; }
-  const v = g === 1 ? -t : Math.pow(-t, g); return [Math.round(v*160), Math.round(v*40), Math.round(v*245)];
+  const v = g === 1 ? Math.abs(t) : Math.pow(Math.abs(t), g);
+  return { v, sat: t >= 0 ? SAT_SOLAR_POS : SAT_SOLAR_NEG };
 }
 function palette_icefire(t, g) {
-  if (t >= 0) { const v = g === 1 ? t : Math.pow(t, g); return [Math.round(v*100), Math.round(v*195), Math.round(v*255)]; }
-  const v = g === 1 ? -t : Math.pow(-t, g); return [Math.round(v*255), Math.round(v*130), Math.round(v*10)];
+  const v = g === 1 ? Math.abs(t) : Math.pow(Math.abs(t), g);
+  return { v, sat: t >= 0 ? SAT_ICEFIRE_POS : SAT_ICEFIRE_NEG };
 }
-const PALETTES = { gex: palette_gex, electric: palette_electric, solar: palette_solar, icefire: palette_icefire };
+// Hi-contrast: both poles ramp toward near-white at peak. In dark mode this
+// gives the highest luminance against the black background; in light mode the
+// inverted ramp means peaks stay strongly tinted while small values blend
+// into the white background.
+function palette_hicontrast(t, g) {
+  const v = g === 1 ? Math.abs(t) : Math.pow(Math.abs(t), g);
+  return { v, sat: t >= 0 ? SAT_HICONTRAST_POS : SAT_HICONTRAST_NEG };
+}
+// Stepped: |t| quantized into 4 brightness bands. Any non-zero value snaps to
+// ≥0.45 so fresh walls are loud, not soft fade-ins. Walls crossing a band
+// boundary produce a visible step.
+function palette_stepped(t, g) {
+  if (!isFinite(t) || Math.abs(t) < 1e-6) return { v: 0, sat: t >= 0 ? SAT_STEPPED_POS : SAT_STEPPED_NEG };
+  const a = Math.abs(t);
+  const idx = Math.min(3, Math.floor(a * 4));
+  const band = [0.45, 0.65, 0.85, 1.0][idx];
+  const v = g === 1 ? band : Math.pow(band, g);
+  return { v, sat: t >= 0 ? SAT_STEPPED_POS : SAT_STEPPED_NEG };
+}
+const PALETTES = { gex: palette_gex, electric: palette_electric, solar: palette_solar, icefire: palette_icefire, hicontrast: palette_hicontrast, stepped: palette_stepped };
 
 // Cached per-frame — refreshed once in render() so tight pixel loops don't hit the DOM.
-let _pal   = palette_gex;
-let _gamma = 1;
+let _pal     = palette_gex;
+let _gamma   = 1;
+let _isLight = false;            // mirrors current theme; flipped in refreshPaletteCache
 // Cross-frame scale state — updated by renderHeat, read by renderProfile.
 let _toT       = (v) => 0;     // (v, ci) → t ∈ [-1,1]
 let _scaleLast = 1;            // a representative |magnitude| at the latest col, for profile bars + legend
@@ -1087,19 +1178,70 @@ function refreshPaletteCache() {
   _pal   = PALETTES[document.getElementById('sPalette').value] || palette_gex;
   _gamma = parseFloat(document.getElementById('sGamma').value);
   if (!isFinite(_gamma) || _gamma <= 0) _gamma = 1;
+  _isLight = document.documentElement.dataset.theme === 'light';
+  refreshTheme();
+}
+
+// Canvas-side theme. Mirrors --theme CSS variables for code that draws
+// directly to canvas (axis ticks, gutters, spot trace, profile labels).
+// Refreshed once per frame in refreshPaletteCache(); the hot pixel loop
+// reads from THEME directly.
+const THEME = {
+  bg: '#000', fg: '#fff', dim: '#888', label: '#9aa6b4', line: '#606060',
+  spot: '#a0d8ff', spotHalo: 'rgba(160,216,255,0.25)', spotDash: 'rgba(160,216,255,0.6)',
+  labelHalo: 'rgba(0,0,0,0.85)',
+};
+function refreshTheme() {
+  if (_isLight) {
+    THEME.bg        = '#ffffff';
+    THEME.fg        = '#1a1c20';
+    THEME.dim       = '#6b7480';
+    THEME.label     = '#50606e';
+    THEME.line      = '#bcc1c8';
+    THEME.spot      = '#1a6cb8';
+    THEME.spotHalo  = 'rgba(26,108,184,0.25)';
+    THEME.spotDash  = 'rgba(26,108,184,0.6)';
+    THEME.labelHalo = 'rgba(255,255,255,0.85)';
+  } else {
+    THEME.bg        = '#000000';
+    THEME.fg        = '#ffffff';
+    THEME.dim       = '#888888';
+    THEME.label     = '#9aa6b4';
+    THEME.line      = '#606060';
+    THEME.spot      = '#a0d8ff';
+    THEME.spotHalo  = 'rgba(160,216,255,0.25)';
+    THEME.spotDash  = 'rgba(160,216,255,0.6)';
+    THEME.labelHalo = 'rgba(0,0,0,0.85)';
+  }
+}
+
+// Compose { v, sat } from a palette into the final RGB given the current theme.
+//   dark  → ramp black → sat   (out_c = v * sat_c)
+//   light → ramp white → sat   (out_c = 255 - v * (255 - sat_c))
+function _composeRGB(v, sat) {
+  if (_isLight) {
+    return [
+      Math.round(255 - v * (255 - sat[0])),
+      Math.round(255 - v * (255 - sat[1])),
+      Math.round(255 - v * (255 - sat[2])),
+    ];
+  }
+  return [Math.round(v * sat[0]), Math.round(v * sat[1]), Math.round(v * sat[2])];
 }
 
 // Old style: direct vol/maxAbs → color. Kept for callers that don't use toT.
 function getColorRGB(vol, maxAbs) {
-  if (maxAbs < 1e-9) return [0, 0, 0];
+  if (maxAbs < 1e-9) return _composeRGB(0, SAT_GEX_POS);   // background-equivalent
   const t = Math.max(-1, Math.min(1, vol / maxAbs));
-  return _pal(t, _gamma);
+  const { v, sat } = _pal(t, _gamma);
+  return _composeRGB(v, sat);
 }
 // New style: precomputed t (so per-column / log / z-score transforms can be applied upstream).
 function getColorRGBT(t) {
-  if (!isFinite(t)) return [0, 0, 0];
+  if (!isFinite(t)) return _composeRGB(0, SAT_GEX_POS);
   t = Math.max(-1, Math.min(1, t));
-  return _pal(t, _gamma);
+  const { v, sat } = _pal(t, _gamma);
+  return _composeRGB(v, sat);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1173,7 +1315,10 @@ function effectiveColW() {
   if (sel === 'fit') {
     const drawW = heatCV.clientWidth - PAX - LGAP;
     if (snapshots.length < 1 || drawW < 2) return 2;
-    return Math.max(0.05, Math.min(80, drawW / snapshots.length));
+    // No 0.05 floor — fit must actually fit, even with very large buffers.
+    // Downstream binSize aggregates as colW shrinks toward 0, so old data
+    // never falls off the left when fit is selected.
+    return Math.min(80, Math.max(1e-4, drawW / snapshots.length));
   }
   if (sel === '1d') {
     // Fixed layout: exactly SNAPS_PER_DAY worth of width. If the buffer is
@@ -1223,7 +1368,7 @@ function renderHeat() {
 
   // Clear entire backing store in device coords
   heatCX.setTransform(1, 0, 0, 1, 0, 0);
-  heatCX.fillStyle = '#000'; heatCX.fillRect(0, 0, Wd, Hd);
+  heatCX.fillStyle = THEME.bg; heatCX.fillRect(0, 0, Wd, Hd);
 
   if (yDomain.max <= yDomain.min || drawW < 2) return;
 
@@ -1738,7 +1883,7 @@ function renderHeat() {
     heatCX.globalAlpha = 1;
     heatCX.setLineDash([]);
     heatCX.fillStyle = color;
-    heatCX.font      = 'bold 11px Courier New';
+    heatCX.font      = `600 12px ${F_NUM}`;
     heatCX.textAlign = 'right';
     heatCX.fillText(`${label} ${last.raw.toFixed(2)}`, W - LGAP - 4, last.y - 4);
     heatCX.restore();
@@ -1806,7 +1951,7 @@ function renderHeat() {
           const alpha = 0.50 + 0.50 * Math.sqrt(norm);
           heatCX.beginPath();
           heatCX.arc(x, y, r + 1.4, 0, Math.PI * 2);
-          heatCX.fillStyle = 'rgba(0,0,0,0.85)';
+          heatCX.fillStyle = THEME.labelHalo;
           heatCX.fill();
           heatCX.beginPath();
           heatCX.arc(x, y, r, 0, Math.PI * 2);
@@ -1817,8 +1962,8 @@ function renderHeat() {
         }
       }
       if (hasAnyVisible) {
-        heatCX.fillStyle = '#a0d8ff';
-        heatCX.font      = 'bold 11px Courier New';
+        heatCX.fillStyle = THEME.spot;
+        heatCX.font      = `600 12px ${F_UI}`;
         heatCX.textAlign = 'right';
         heatCX.fillText(`ΔMaxCh ${label}`, W - LGAP - 4, 28);
       }
@@ -2192,18 +2337,18 @@ function renderHeat() {
     }
     if (tracePts.length) {
       heatCX.save();
-      heatCX.strokeStyle = 'rgba(160,216,255,0.25)'; heatCX.lineWidth = 4; heatCX.lineCap = 'round';
+      heatCX.strokeStyle = THEME.spotHalo; heatCX.lineWidth = 4; heatCX.lineCap = 'round';
       heatCX.beginPath(); heatCX.moveTo(tracePts[0].x, tracePts[0].y);
       for (let i = 1; i < tracePts.length; i++) heatCX.lineTo(tracePts[i].x, tracePts[i].y);
       heatCX.stroke();
-      heatCX.strokeStyle = '#ffffff'; heatCX.lineWidth = 1.25;
+      heatCX.strokeStyle = THEME.fg; heatCX.lineWidth = 1.25;
       heatCX.beginPath(); heatCX.moveTo(tracePts[0].x, tracePts[0].y);
       for (let i = 1; i < tracePts.length; i++) heatCX.lineTo(tracePts[i].x, tracePts[i].y);
       heatCX.stroke();
       const last = tracePts[tracePts.length-1];
-      heatCX.fillStyle = '#fff'; heatCX.strokeStyle = '#a0d8ff'; heatCX.lineWidth = 1.5;
+      heatCX.fillStyle = THEME.fg; heatCX.strokeStyle = THEME.spot; heatCX.lineWidth = 1.5;
       heatCX.beginPath(); heatCX.arc(last.x, last.y, 3, 0, Math.PI*2); heatCX.fill(); heatCX.stroke();
-      heatCX.fillStyle = '#fff'; heatCX.font = 'bold 13px Courier New'; heatCX.textAlign = 'right';
+      heatCX.fillStyle = THEME.fg; heatCX.font = `700 14px ${F_NUM}`; heatCX.textAlign = 'right';
       heatCX.fillText(latestSpot.toFixed(2), W - LGAP - 4, last.y - 5);
       heatCX.restore();
     }
@@ -2212,20 +2357,20 @@ function renderHeat() {
     if (0 >= yDomain.min && 0 <= yDomain.max) {
       const sy = Math.round(yToPx(0, H));
       heatCX.save();
-      heatCX.strokeStyle = 'rgba(160,216,255,0.6)'; heatCX.lineWidth = 1.5;
+      heatCX.strokeStyle = THEME.spotDash; heatCX.lineWidth = 1.5;
       heatCX.setLineDash([5,3]);
       heatCX.beginPath(); heatCX.moveTo(PAX, sy); heatCX.lineTo(W - LGAP - 2, sy); heatCX.stroke();
       heatCX.setLineDash([]);
-      heatCX.fillStyle = '#a0d8ff'; heatCX.font = 'bold 12px Courier New'; heatCX.textAlign = 'right';
-      heatCX.fillText(`SPOT ${latestSpot.toFixed(2)}`, W - LGAP - 4, sy - 4);
+      heatCX.fillStyle = THEME.spot; heatCX.font = `600 13px ${F_UI}`; heatCX.textAlign = 'right';
+      heatCX.fillText(`Spot ${latestSpot.toFixed(2)}`, W - LGAP - 4, sy - 4);
       heatCX.restore();
     }
   }
 
   // ── Price / y axis ──
-  heatCX.fillStyle = '#000'; heatCX.fillRect(0, 0, PAX, H);
-  heatCX.fillStyle = '#606060'; heatCX.fillRect(PAX - 1, 0, 1, drawH);
-  heatCX.font = 'bold 12px Courier New'; heatCX.textAlign = 'right';
+  heatCX.fillStyle = THEME.bg; heatCX.fillRect(0, 0, PAX, H);
+  heatCX.fillStyle = THEME.line; heatCX.fillRect(PAX - 1, 0, 1, drawH);
+  heatCX.font = `500 13px ${F_NUM}`; heatCX.textAlign = 'right';
 
   const nTicks = Math.max(2, Math.floor(drawH / 32));
   // Nice step for relative modes
@@ -2242,8 +2387,8 @@ function renderHeat() {
   for (let yv = baseY; yv <= yDomain.max; yv += step) {
     const y = Math.round(yToPx(yv, H));
     if (y < 4 || y > drawH - 4) continue;
-    heatCX.fillStyle = '#606060'; heatCX.fillRect(PAX - 4, y, 4, 1);
-    heatCX.fillStyle = '#fff';
+    heatCX.fillStyle = THEME.line; heatCX.fillRect(PAX - 4, y, 4, 1);
+    heatCX.fillStyle = THEME.fg;
     let label;
     if (yMode() === 'abs')     label = yv.toFixed(0);
     else if (yMode() === 'rel_pts') label = (yv >= 0 ? '+' : '') + yv.toFixed(0);
@@ -2252,17 +2397,17 @@ function renderHeat() {
   }
 
   // Axis label at top-left
-  heatCX.fillStyle = '#888'; heatCX.font = 'bold 9px Courier New'; heatCX.textAlign = 'left';
-  heatCX.fillText(yAxisLabel().toUpperCase(), 4, 12);
+  heatCX.fillStyle = THEME.label; heatCX.font = `500 11px ${F_UI}`; heatCX.textAlign = 'left';
+  heatCX.fillText(yAxisLabel(), 4, 12);
 
   // ── Time axis ──
-  heatCX.fillStyle = '#000'; heatCX.fillRect(PAX, drawH, drawW + LGAP, TAX);
-  heatCX.fillStyle = '#606060'; heatCX.fillRect(PAX, drawH, drawW, 1);
-  heatCX.fillStyle = '#fff'; heatCX.font = 'bold 11px Courier New'; heatCX.textAlign = 'center';
+  heatCX.fillStyle = THEME.bg; heatCX.fillRect(PAX, drawH, drawW + LGAP, TAX);
+  heatCX.fillStyle = THEME.line; heatCX.fillRect(PAX, drawH, drawW, 1);
+  heatCX.fillStyle = THEME.fg; heatCX.font = `500 12px ${F_NUM}`; heatCX.textAlign = 'center';
   const fmtHM = tsFormatter('hm');
-  // HH:MM in bold 11px Courier is ~33px wide — 40px spacing keeps a small gap.
+  // HH:MM in 12px sans-mono is ~36px wide — 44px spacing keeps a small gap.
   // Tick spacing is in output columns (each column = effColW CSS pixels).
-  const tickEvery = Math.max(1, Math.round(40 / effColW));
+  const tickEvery = Math.max(1, Math.round(44 / effColW));
   for (let k = 0; k < nCols; k += tickEvery) {
     const binStart = startI + k * binSize;
     if (binStart >= endI) break;
@@ -2279,15 +2424,15 @@ function renderHeat() {
     const [r, g, b] = getColorRGBT(t);
     heatCX.fillStyle = `rgb(${r},${g},${b})`; heatCX.fillRect(lgX, lgY + i, 10, 1);
   }
-  heatCX.strokeStyle = '#606060'; heatCX.strokeRect(lgX, lgY, 10, lgH);
+  heatCX.strokeStyle = THEME.line; heatCX.strokeRect(lgX, lgY, 10, lgH);
   const [pR,pG,pB] = getColorRGBT(1);
   const [nR,nG,nBl] = getColorRGBT(-1);
-  heatCX.font = 'bold 11px Courier New'; heatCX.textAlign = 'left';
-  heatCX.fillStyle = `rgb(${pR},${pG},${pB})`; heatCX.fillText('+', lgX + 12, lgY + 9);
-  heatCX.fillStyle = `rgb(${nR},${nG},${nBl})`; heatCX.fillText('−', lgX + 12, lgY + lgH + 2);
+  heatCX.font = `700 13px ${F_UI}`; heatCX.textAlign = 'left';
+  heatCX.fillStyle = `rgb(${pR},${pG},${pB})`; heatCX.fillText('+', lgX + 12, lgY + 10);
+  heatCX.fillStyle = `rgb(${nR},${nG},${nBl})`; heatCX.fillText('−', lgX + 12, lgY + lgH + 3);
 
   // Top-right: latest-column scale value + mode tag
-  heatCX.fillStyle = '#888'; heatCX.font = 'bold 10px Courier New'; heatCX.textAlign = 'right';
+  heatCX.fillStyle = THEME.label; heatCX.font = `500 12px ${F_UI}`; heatCX.textAlign = 'right';
   heatCX.fillText(`|scale| ${legendMax.toFixed(2)}  [${legendTag}]`, W - 4, 12);
 }
 
@@ -2300,7 +2445,7 @@ function renderProfile() {
 
   // Clear device buffer, then switch to CSS coords for vector drawing
   profCX.setTransform(1, 0, 0, 1, 0, 0);
-  profCX.fillStyle = '#000'; profCX.fillRect(0, 0, Wd, Hd);
+  profCX.fillStyle = THEME.bg; profCX.fillRect(0, 0, Wd, Hd);
   profCX.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const endI = snapshots.length - scrollOffset;
@@ -2351,17 +2496,17 @@ function renderProfile() {
     else           profCX.fillRect(mid - bW, slotTop, bW, h2);
   }
 
-  profCX.fillStyle = '#606060'; profCX.fillRect(mid, 0, 1, drawH);
-  profCX.fillStyle = '#fff'; profCX.font = 'bold 11px Courier New'; profCX.textAlign = 'center';
-  const label = modeValue() === 'delta' ? `Δ ${lookback()} SNAPS` : 'SNAPSHOT';
+  profCX.fillStyle = THEME.line; profCX.fillRect(mid, 0, 1, drawH);
+  profCX.fillStyle = THEME.fg; profCX.font = `600 12px ${F_UI}`; profCX.textAlign = 'center';
+  const label = modeValue() === 'delta' ? `Δ ${lookback()} snaps` : 'Snapshot';
   profCX.fillText(label, W / 2, 12);
 
   // Spot marker on profile
   if (yMode() === 'abs' && sp > 0) {
-    profCX.fillStyle = 'rgba(160,216,255,0.6)';
+    profCX.fillStyle = THEME.spotDash;
     profCX.fillRect(0, Math.round(yToPx(sp, H)), W, 1);
   } else if (yMode() !== 'abs') {
-    profCX.fillStyle = 'rgba(160,216,255,0.6)';
+    profCX.fillStyle = THEME.spotDash;
     profCX.fillRect(0, Math.round(yToPx(0, H)), W, 1);
   }
 }
@@ -2388,12 +2533,14 @@ function updateStats(meta) {
   sv('v-mn', meta.majNeg, 'neg');
 
   const badge = document.getElementById('v-mode');
+  // Clear inline styles so the badge inherits CSS-variable-driven theme colors.
+  badge.style.background = ''; badge.style.borderColor = ''; badge.style.color = '';
   if (modeValue() === 'delta') {
-    badge.textContent = `Δ CHANGE · ${lookback()} SNAPS`;
-    badge.style.background = '#2a1508'; badge.style.borderColor = '#ff8840'; badge.style.color = '#ff8840';
+    badge.textContent = `Δ Change · ${lookback()} snaps`;
+    badge.classList.add('delta-mode');
   } else {
-    badge.textContent = 'RAW GEX';
-    badge.style.background = '#0a2030'; badge.style.borderColor = '#3090d0'; badge.style.color = '#a0d8ff';
+    badge.textContent = 'Raw GEX';
+    badge.classList.remove('delta-mode');
   }
 }
 
@@ -2448,10 +2595,11 @@ document.getElementById('btnClear').addEventListener('click', () => {
   zoomLock = false; colWOverride = null;
   scrollOffset = 0; followLive = true;
   resize();
+  refreshTheme();
   heatCX.setTransform(1, 0, 0, 1, 0, 0);
-  heatCX.fillStyle = '#000'; heatCX.fillRect(0, 0, heatCV.width, heatCV.height);
+  heatCX.fillStyle = THEME.bg; heatCX.fillRect(0, 0, heatCV.width, heatCV.height);
   profCX.setTransform(1, 0, 0, 1, 0, 0);
-  profCX.fillStyle = '#000'; profCX.fillRect(0, 0, profCV.width, profCV.height);
+  profCX.fillStyle = THEME.bg; profCX.fillRect(0, 0, profCV.width, profCV.height);
   document.getElementById('v-sn').textContent = '0';
 });
 
@@ -2577,6 +2725,31 @@ document.getElementById('btnLoad').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════
+//  THEME (light / dark)
+// ═══════════════════════════════════════════════════════
+// Persisted in localStorage under 'gexbot.theme'. Applied as
+// `data-theme="light"` on the <html> element; CSS variables and the canvas
+// THEME object both key off it.
+(function () {
+  const KEY = 'gexbot.theme';
+  function apply(theme) {
+    if (theme === 'light') document.documentElement.dataset.theme = 'light';
+    else                   delete document.documentElement.dataset.theme;
+    const btn = document.getElementById('btnTheme');
+    if (btn) btn.textContent = theme === 'light' ? 'LIGHT' : 'DARK';
+  }
+  let saved = 'dark';
+  try { saved = localStorage.getItem(KEY) || 'dark'; } catch (e) { /* private mode */ }
+  apply(saved);
+  document.getElementById('btnTheme').addEventListener('click', () => {
+    const next = (document.documentElement.dataset.theme === 'light') ? 'dark' : 'light';
+    apply(next);
+    try { localStorage.setItem(KEY, next); } catch (e) { /* ignore */ }
+    if (typeof render === 'function' && snapshots.length) render();
+  });
+})();
+
+// ═══════════════════════════════════════════════════════
 //  HELP OVERLAY
 // ═══════════════════════════════════════════════════════
 (function () {
@@ -2619,18 +2792,25 @@ idbPurgeOld().finally(() => refreshRestoreButton());
 // ═══════════════════════════════════════════════════════
 //  MOUSE
 // ═══════════════════════════════════════════════════════
+// dragMode:
+//   'y'      — drag in chart area: pan Y (existing)
+//   'x'      — alt+drag in chart area: pan X (existing)
+//   'zoom_y' — drag in price-axis gutter (right): pull up = zoom in Y, pull down = zoom out
+//   'zoom_x' — drag in time-axis strip (bottom): pull right = zoom in X, pull left = zoom out
 let dragging = false, dragY0 = 0, dragX0 = 0, dragYDom0 = null, dragOff0 = 0, dragMode = 'y';
+let dragColW0 = 1;     // colW snapshot for 'zoom_x'
+let dragYAnchor = 0;   // y-domain anchor (kept fixed during 'zoom_y')
 
 heatCV.addEventListener('wheel', e => {
   e.preventDefault();
 
   if (e.shiftKey) {
     // Zoom X. colW is now a float — supports sub-pixel widths for aggregated
-    // long-range views. Floor at 0.05 (≈ ~20 source snapshots per pixel).
+    // long-range views.
     const curW = effectiveColW();
     let newW;
-    if (e.deltaY > 0) newW = Math.max(0.05, curW * 0.80);
-    else              newW = Math.min(80,   curW * 1.25);
+    if (e.deltaY > 0) newW = Math.max(0.001, curW * 0.80);
+    else              newW = Math.min(80,    curW * 1.25);
     colWOverride = newW; render(); return;
   }
 
@@ -2659,9 +2839,22 @@ heatCV.addEventListener('mousedown', e => {
   dragX0 = e.clientX; dragY0 = e.clientY;
   dragYDom0 = { min: yDomain.min, max: yDomain.max };
   dragOff0 = scrollOffset;
-  const inTimeAxis = e.offsetY > heatCV.clientHeight - TAX - 4;
-  dragMode = (e.altKey || inTimeAxis) ? 'x' : 'y';
-  if (dragMode === 'y') zoomLock = true;
+  dragColW0 = effectiveColW();
+  const W = heatCV.clientWidth, H = heatCV.clientHeight;
+  const inTimeAxis  = e.offsetY > H - TAX - 4;
+  const inPriceAxis = e.offsetX > W - PAX - 4;
+  if (inPriceAxis) {
+    dragMode = 'zoom_y';
+    dragYAnchor = pxToY(e.offsetY, H);   // anchor at the price under cursor
+    zoomLock = true;
+  } else if (inTimeAxis) {
+    dragMode = 'zoom_x';
+  } else if (e.altKey) {
+    dragMode = 'x';
+  } else {
+    dragMode = 'y';
+    zoomLock = true;
+  }
 });
 // Helper: derive the same render metrics renderHeat uses, so mouse handlers
 // agree on output-column → source-snapshot mapping. Returns:
@@ -2696,13 +2889,40 @@ heatCV.addEventListener('mousemove', e => {
       scrollOffset = Math.max(0, Math.round(dragOff0 + (dx / m.effColW) * m.binSize));
       followLive = (scrollOffset === 0);
       render();
-    } else if (yDomain.max > yDomain.min) {
+    } else if (dragMode === 'zoom_y' && yDomain.max > yDomain.min) {
+      // Drag price-axis gutter: pull up = zoom in (compress range), down = zoom out.
+      // Anchor (the y-value at mousedown) stays fixed under the cursor's column.
+      const dy = e.clientY - dragY0;
+      const factor = Math.exp(dy / 180);     // 180 px ≈ e× zoom; gentle
+      const oldR = dragYDom0.max - dragYDom0.min;
+      const newR = Math.max(1e-6, oldR * factor);
+      const ratio = (dragYAnchor - dragYDom0.min) / oldR;
+      yDomain.min = dragYAnchor - ratio * newR;
+      yDomain.max = dragYAnchor + (1 - ratio) * newR;
+      render();
+    } else if (dragMode === 'zoom_x') {
+      // Drag time-axis strip: pull right = zoom in (col grows), left = zoom out.
+      const dx = e.clientX - dragX0;
+      const factor = Math.exp(dx / 180);
+      const newW = Math.max(0.001, Math.min(80, dragColW0 * factor));
+      colWOverride = newW;
+      render();
+    } else if (dragMode === 'y' && yDomain.max > yDomain.min) {
       const dy = e.clientY - dragY0;
       const ppx = (dragYDom0.max - dragYDom0.min) / (heatCV.clientHeight - TAX);
       yDomain.min = dragYDom0.min + dy * ppx;
       yDomain.max = dragYDom0.max + dy * ppx;
       render();
     }
+  }
+  // Cursor hint when hovering over an axis gutter (only when not dragging).
+  if (!dragging) {
+    const W = heatCV.clientWidth, H = heatCV.clientHeight;
+    const inTimeAxis  = e.offsetY > H - TAX - 4;
+    const inPriceAxis = e.offsetX > W - PAX - 4;
+    if (inPriceAxis)      heatCV.style.cursor = 'ns-resize';
+    else if (inTimeAxis)  heatCV.style.cursor = 'ew-resize';
+    else                  heatCV.style.cursor = 'crosshair';
   }
   if (yDomain.max > yDomain.min) {
     const yv = pxToY(e.offsetY, heatCV.clientHeight);

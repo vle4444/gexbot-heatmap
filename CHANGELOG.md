@@ -1,5 +1,94 @@
 # Changelog
 
+## [0.6.5] — Single-dashboard repo, light/dark theme
+
+### Removed
+- **`index.html` (classic dashboard) deleted.** The repo now ships only
+  `delta.html`. `server.js` still serves it at `/` (root path now resolves
+  to `/delta.html` instead of `/index.html`). Active docs (README, CLAUDE.md,
+  CONTROLS.md) updated; historical references in HISTORY.md / CHANGELOG /
+  GEXBOT-API kept as-is.
+
+### Added
+- **Light / dark theme toggle.** New `DARK` / `LIGHT` button at the right
+  end of the toolbar. Persisted in `localStorage` under `gexbot.theme`.
+  Default is dark.
+  - **Chrome** — toolbar, stats, footer, help overlay, error panels — fully
+    re-skinned via CSS variables. Off-black bg / white text in dark; near-white
+    bg / dark text in light, with restrained accent colors that hold up on
+    white (`#1a6cb8` blue replaces the bright `#3090d0` etc.).
+  - **Heatmap canvas** — background, axis ticks, axis labels, time-axis
+    strip, spot trace, profile panel, and legend frame all read from a
+    runtime `THEME` object that flips on theme change.
+  - **Palettes** — refactored to a `{v, sat}` form so the renderer can
+    compose them differently per theme:
+    - dark mode rams **black → saturated** (`out_c = v · sat_c`, unchanged)
+    - light mode rams **white → saturated** (`out_c = 255 − v · (255 − sat_c)`)
+    - net effect: in light mode, t=0 cells blend into the white background;
+      cells fade *up* in saturation as |t| grows, instead of fading *up* in
+      brightness from black. Hue identity preserved at peaks.
+  - All six palettes (GEX, Electric, Solar, Ice/Fire, Hi-contrast, Stepped)
+    work in both themes.
+
+## [0.6.4] — Fit-always-fits, axis-grip zoom, refreshed typography, new defaults
+
+### Fixed
+- **`Col px = fit` now actually fits the full buffer.** Previous floor of
+  `0.05` CSS px/snap meant ~20+ source snaps per pixel was the densest the
+  layout would go, so once the buffer exceeded ~6,000 snaps on a 1500px
+  drawing area the oldest snapshots scrolled off the left even with `fit`
+  selected. The floor is dropped to `1e-4`; the existing sub-pixel
+  aggregation pipeline (max-abs per strike) now compresses every snap into
+  available pixels at any buffer size.
+
+### Changed
+- **Typography overhaul.** Toolbar/labels now use a system sans stack
+  (`-apple-system`, `Segoe UI`, system-ui, …) instead of monospace; the
+  forced uppercase + 1–2px letter-spacing on every label is gone. Numeric
+  values (axis ticks, spot, stats) keep a mono stack (`Consolas`, `Menlo`,
+  …) with `font-variant-numeric: tabular-nums` so columns align. Base size
+  bumped from 14 → 15 px; small labels from 11 → 13 px; canvas-rendered
+  axis ticks bumped 1 px each.
+- **Drag-axis zoom.** Drag in the **right price-axis gutter** to zoom Y
+  (pull up = zoom in, pull down = zoom out, anchor preserved at the y-value
+  under cursor at mousedown). Drag in the **bottom time-axis strip** to
+  zoom X (pull right = zoom in, pull left = zoom out). Cursor switches to
+  `ns-resize` / `ew-resize` over the gutters as a hint.
+- **Pan X demoted from time-axis-drag.** Time-axis drag was previously
+  pan-X; now it's zoom-X. Pan X is still available via **Alt+Drag in chart
+  area**, **Ctrl+Scroll**, **Arrow keys**, and horizontal trackpad
+  gestures.
+- **New defaults**: `Blend = Max (sign-safe)` (was: None/sharp) and
+  `Col px = fit` (was: 2). Aligns the out-of-box view with the now-fixed
+  fit behavior and the sign-preserving blend most useful for spotting
+  small opposite-sign strikes between large neighbors.
+
+## [0.6.3] — Two max-contrast palettes (Hi-contrast, Stepped)
+
+Two new options in the **Palette** dropdown of both dashboards, designed
+specifically for spotting wall changes and new walls appearing — situations
+where the existing equally-saturated palettes (GEX, Electric, Solar,
+Ice/Fire) can hide low-magnitude or just-arrived activity.
+
+### New
+- **Hi-contrast (white-tipped)** — both poles ramp toward near-white at
+  peak. Peak luminance is the highest of any palette here, so big walls
+  visibly burn brighter against the black background and changes in the
+  largest values are easier to see. Sign carried by tint at sub-peak:
+  yellow-white (+), pink-white (−).
+- **Stepped (4 bands, lime/magenta)** — |t| is quantized into 4 brightness
+  bands (0.45, 0.65, 0.85, 1.0). Any non-zero value snaps to ≥45%
+  brightness, so a wall popping into existence is loud rather than a soft
+  fade-in. A wall crossing a band boundary produces a discrete step rather
+  than a smooth shade, making magnitude changes easy to spot. Magnitude
+  resolution is intentionally coarse — pair with a Trailing or Snapshot
+  scale if you want band transitions to track local activity.
+
+### Where
+- `delta.html` (with the Gamma selector) and `index.html` (fixed γ=0.55)
+  both ship the new options.
+- Help overlay updated with descriptions in the **Palette** section.
+
 ## [0.6.2] — Remove session minimap
 
 The 80px-tall always-visible session-overview strip added in v0.5.0 is

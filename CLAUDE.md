@@ -7,20 +7,19 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 ## Stack
 - Vanilla HTML / CSS / Canvas2D — no framework, no bundler, no transpiler.
 - Dependency-free Node HTTP server (`server.js`).
-- Two dashboards: `delta.html` (flow-oriented, requires GexBot **State** subscription) and `index.html` (classic, requires **Classic** subscription).
+- One dashboard: `delta.html` (flow-oriented, requires GexBot **State** subscription). The legacy `index.html` (classic) was removed in v0.6.5.
 - Target: modern Chromium with DPR-aware rendering.
 
 ## Commands
-- Run: `node server.js` → http://localhost:3001 (classic) or `/delta.html` (delta).
+- Run: `node server.js` → http://localhost:3001/ (serves delta.html).
 - Required: `.env` containing `GEXBOT_API_KEY=gexbot_custom_…` (copy from `.env.example`).
-- Syntax check after non-trivial JS edits to `delta.html` / `index.html`:
+- Syntax check after non-trivial JS edits to `delta.html`:
   `node -e "new Function(require('fs').readFileSync('delta.html','utf8').match(/<script>([\\s\\S]*)<\\/script>/)[1]); console.log('OK')"`
 - No build / no test / no lint pipeline — vanilla JS, no toolchain.
 
 ## Architecture
-- `delta.html` — flow-oriented heatmap. Δ vs Raw measure, offset Y modes, Strike-px ladder, MaxCh persistence (CUSUM) + event detectors (burst / swarm / pump), sub-pixel `Col px` with max-abs aggregation, IndexedDB auto-save + RESTORE.
-- `index.html` — classic absolute GEX heatmap. Simpler controls, left-gutter level guides.
-- `server.js` — all-in-one HTTP server: static files + `/api/*` proxy to api.gexbot.com (auth-injected) + `/histapi/*` proxy + `/fetch?url=` for presigned S3.
+- `delta.html` — flow-oriented heatmap. Δ vs Raw measure, offset Y modes, Strike-px ladder, MaxCh persistence (CUSUM) + event detectors (burst / swarm / pump), sub-pixel `Col px` with max-abs aggregation, IndexedDB auto-save + RESTORE, light/dark theme.
+- `server.js` — all-in-one HTTP server: static files (root → `/delta.html`) + `/api/*` proxy to api.gexbot.com (auth-injected) + `/histapi/*` proxy + `/fetch?url=` for presigned S3.
 - `recorder.js` — optional long-running JSONL recorder.
 - `docs/CONCEPTS.md` — options-exposure metrics theory (DEX, GEX, vanna, charm, regime guide).
 - `docs/GEXBOT-API.md` — comprehensive API reference (endpoints, auth, sign-convention gotchas).

@@ -106,7 +106,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ── Static files ─────────────────────────────────────────
-  const file = parsed.pathname === '/' ? '/index.html' : parsed.pathname;
+  const file = parsed.pathname === '/' ? '/delta.html' : parsed.pathname;
   const fp = path.join(__dirname, file);
   if (!fp.startsWith(__dirname)) { res.writeHead(403); res.end('forbidden'); return; }
 
