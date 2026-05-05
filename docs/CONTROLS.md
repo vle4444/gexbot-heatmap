@@ -13,6 +13,9 @@
 | Drag in **right price-axis gutter** | Zoom Y (pull up = zoom in, down = zoom out) |
 | Drag in **bottom time-axis strip** | Zoom X (pull right = zoom in, left = zoom out) |
 | Drag right edge of profile panel | Resize profile panel |
+| **Hover** in chart area | Crosshair + floating tooltip (timestamp, y, nearest strike + vol, spot, ZG, net GEX) |
+| **Click** in chart area (Mark ≠ off) | Drop annotation of selected type at cursor |
+| **Right-click** an annotation | Delete it (within ~8 px) |
 
 ## Keyboard
 
@@ -50,6 +53,21 @@
 - **LIVE** — toggle live polling on/off.
 - **RESET ZOOM** — unlock Y-axis auto-range and jump to live.
 - **CLEAR** — empty the snapshot buffer.
+- **Mark** — annotation type to drop on next click. Options: `off` (clicks pan as
+  normal), `price line`, `time marker`, `point + note`. Annotations persist in
+  IndexedDB scoped to (ticker, expiry, overlay). Right-click an annotation to
+  delete it; the **⌫** button clears all for the current key.
+- **REPLAY** — open the scrubber bar at the bottom. Pauses live polling. Drag
+  the knob to scrub, ▶ to play at 1×–60× speed, EXIT to resume live.
+- **DARK / LIGHT** — toggle theme. Persisted in localStorage.
+
+## Stats bar
+
+- **Spot / Net GEX / Zero γ / Maj +/−** — current snapshot's headline values.
+- **Regime** — auto-classified GEX regime: `Long γ · fade` (spot above zero
+  gamma; dealers fade moves), `Short γ · chase` (below ZG; dealers chase),
+  or `Flip` (within ±5 bp of ZG, transitional). Hover the pill for a
+  one-line interpretation.
 
 ## Additional controls
 

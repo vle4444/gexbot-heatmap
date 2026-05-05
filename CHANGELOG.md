@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.7.0] — Crosshair, annotations, replay, regime classifier, rAF coalescing
+
+A batch of UX-and-alpha additions selected from a brainstorm. Five of six
+features land; the sixth (OffscreenCanvas + Worker) is parked for its own
+focused commit because it requires a real refactor of the pixel-loop /
+vector-overlay split (see "Deferred" below).
+
+### Added — performance
+- **rAF render coalescing.** The previously-synchronous `render()` is now an
+  rAF wrapper around `_renderNow()`. All existing call sites (mousemove
+  drag, wheel zoom, fetch ingest, control changes) are unchanged but at
+  most one paint runs per frame regardless of how many times `render()`
+  is invoked. Materially smoother drag-pan / drag-zoom on large buffers.
+
+### Added — UX
+- **Crosshair + floating tooltip.** Hover anywhere in the chart area →
+  vertical column-aligned line, horizontal cursor line, and a tabular
+  tooltip showing `{time, y, nearest strike, vol@strike, spot, zero γ,
+  net GEX}`. Tooltip auto-flips at right/bottom edges.
+- **Persistent annotation layer (IndexedDB).** New **Mark** dropdown +
+  **⌫** clear button. Three annotation types: `price line` (horizontal,
+  preserved across Y-axis modes via abs-price storage), `time marker`
+  (vertical at a snapshot's timestamp), `point + note` (labeled dot at
+  price+time). Scoped to (ticker, expiry, overlay), survives reloads.
+  Right-click within ~8 px to delete; ⌫ clears all for the current key.
+  IDB schema bumped from v1 → v2 (additive — `snapshots` store unchanged,
+  new `annotations` store added).
+
+### Added — alpha
+- **GEX regime classifier badge.** New `Regime` pill in the stats bar.
+  Computes from `meta.spot` and `meta.zeroG`:
+  - `Long γ · fade` (spot above zero γ — dealers hedge counter-flow,
+    walls magnetize, breakouts often fail)
+  - `Short γ · chase` (spot below zero γ — dealers hedge with-flow,
+    walls become barriers, breakouts accelerate)
+  - `Flip · ±X%` (within ±5 bp of zero γ — transitional)
+  Color-coded green / red / yellow. Frames the interpretation of every
+  other on-screen signal.
+- **Replay mode with timeline scrubber.** New **REPLAY** button opens a
+  bottom strip with play/pause, 1×/5×/15×/30×/60× speed, draggable
+  scrubber knob, click-to-jump track, and live position readout
+  (`HH:MM:SS`, `i / N`). Pauses live polling on enter; restores it on
+  EXIT. Pairs with the IDB **RESTORE** flow — you can restore yesterday's
+  full session and replay it at 30× to study how walls formed and broke.
+
+### Deferred
+- **OffscreenCanvas + Worker for the heatmap pixel loop** is parked for a
+  dedicated commit. Reason: the existing `renderHeat` interleaves the
+  pixel loop with vector overlays (axis ticks, spot trace, level traces,
+  legend) on the same canvas, so worker offload requires either splitting
+  the render into "before-pixels" / "after-pixels" halves with a real
+  state-passing protocol, or duplicating all palette/scale/blend code
+  into a worker source string. With rAF coalescing landed in this batch,
+  the perceived-snappiness gap closed enough that the worker becomes a
+  pure-perf optimization (≤3-5 ms savings per frame on typical buffers)
+  worth doing carefully in isolation.
+
 ## [0.6.5] — Single-dashboard repo, light/dark theme
 
 ### Removed

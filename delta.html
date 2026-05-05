@@ -123,11 +123,41 @@ input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   padding: 2px 8px; font-size: 12px; letter-spacing: 0; border-radius: 2px; font-weight: 600;
 }
 .badge.delta-mode { background: var(--warn-bg); border-color: var(--tag); color: var(--tag); }
+.regime-pill {
+  font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 2px;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--dim);
+  font-family: var(--font); white-space: nowrap;
+}
+.regime-pill.long  { color: var(--green); border-color: var(--green); background: var(--tip-bg); }
+.regime-pill.short { color: var(--red);   border-color: var(--red);   background: var(--warn-bg); }
+.regime-pill.flat  { color: var(--yellow); border-color: var(--yellow); }
 
 /* main */
 #main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 #hc { flex: 1; position: relative; min-width: 0; }
 canvas#heat { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+/* Crosshair lines + hover tooltip — overlays positioned over canvas#heat. */
+#crosshair { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 5; }
+#crosshair.on { display: block; }
+.cx-v { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--label); opacity: 0.45; }
+.cx-h { position: absolute; left: 0; right: 0; height: 1px; background: var(--label); opacity: 0.45; }
+#tooltip {
+  position: absolute; pointer-events: none; z-index: 10; display: none;
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 3px; padding: 8px 11px; font-family: var(--mono); font-size: 12px;
+  line-height: 1.55; min-width: 170px; max-width: 280px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4); font-variant-numeric: tabular-nums;
+}
+#tooltip.on { display: block; }
+#tooltip .tt-time { color: var(--label); font-family: var(--font); font-size: 11px; margin-bottom: 4px; }
+#tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; }
+#tooltip .tt-key { color: var(--label); font-family: var(--font); }
+#tooltip .tt-val { color: var(--text); font-weight: 600; }
+#tooltip .tt-val.pos { color: var(--green); }
+#tooltip .tt-val.neg { color: var(--red); }
+#tooltip .tt-val.spot { color: var(--spot); }
+#tooltip .tt-sep { height: 1px; background: var(--border); margin: 5px 0; }
 #pc { width: 160px; border-left: 1px solid var(--border); position: relative; flex-shrink: 0; min-width: 60px; max-width: 600px; }
 canvas#prof { display: block; width: 100%; height: 100%; }
 
@@ -167,6 +197,33 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   padding: 4px 10px; display: flex; justify-content: space-between;
   flex-shrink: 0; color: var(--dim); font-size: 12px; letter-spacing: 0;
 }
+
+/* ── Replay scrubber bar ───────────────────────────────────────────── */
+#replay-bar {
+  display: none; align-items: center; gap: 10px;
+  background: var(--bg2); border-top: 1px solid var(--border);
+  padding: 6px 12px; flex-shrink: 0;
+}
+#replay-bar.on { display: flex; }
+#rp-play { font-family: var(--font); font-size: 13px; min-width: 36px; }
+#rp-time { font-family: var(--mono); font-size: 13px; color: var(--text); min-width: 76px; }
+#rp-pos  { font-family: var(--mono); font-size: 11px; color: var(--label); min-width: 90px; text-align: right; }
+#rp-track {
+  flex: 1; position: relative; height: 8px; cursor: pointer;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px;
+}
+#rp-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--accent); opacity: 0.55; border-radius: 4px 0 0 4px;
+  pointer-events: none; width: 0;
+}
+#rp-knob {
+  position: absolute; top: 50%; left: 0;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%; background: var(--text); border: 2px solid var(--accent);
+  cursor: grab; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+#rp-knob.dragging { cursor: grabbing; }
 
 /* ── Help overlay ───────────────────────────────── */
 #helpOverlay {
@@ -446,6 +503,17 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <button class="btn" id="btnSave" title="Save current buffer as JSON">SAVE</button>
   <button class="btn" id="btnLoad" title="Load a saved session file">LOAD</button>
   <button class="btn" id="btnRestore" title="Restore today's auto-saved session for the current ticker / expiry / overlay. Disabled until at least one snapshot is on disk for today's date." disabled>RESTORE</button>
+  <div class="ctrl">
+    <span class="lbl">Mark</span>
+    <select id="sAnnotType" title="Annotation type to drop on next click in the chart area. Right-click an existing annotation to delete it.">
+      <option value="off" selected>off</option>
+      <option value="price">price line</option>
+      <option value="time">time marker</option>
+      <option value="note">point + note</option>
+    </select>
+    <button class="btn" id="btnAnnotClear" title="Delete all saved annotations for this ticker / expiry / overlay">⌫</button>
+  </div>
+  <button class="btn" id="btnReplay" title="Open the replay scrubber for the current buffer">REPLAY</button>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
   <button class="btn" id="btnTheme" title="Toggle light / dark theme" style="margin-left:auto">DARK</button>
 </div>
@@ -456,6 +524,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="stat"><span class="slab">Zero γ</span><span id="v-zg" class="sval yel">—</span></div>
   <div class="stat"><span class="slab">Maj +</span><span id="v-mp" class="sval pos">—</span></div>
   <div class="stat"><span class="slab">Maj −</span><span id="v-mn" class="sval neg">—</span></div>
+  <div class="stat" title="Regime classifier. Long γ (spot above zero-gamma): dealers fade moves → mean-reverting. Short γ (spot below zero-gamma): dealers chase → trend-amplifying. Arrow = expected dealer flow direction at current spot."><span class="slab">Regime</span><span id="v-rg" class="regime-pill">—</span></div>
   <div id="stats-r">
     <div class="stat"><span class="badge" id="v-mode">RAW GEX</span></div>
     <div class="stat"><span class="slab">Snaps</span><span id="v-sn" class="sval">0</span></div>
@@ -466,6 +535,8 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 <div id="main">
   <div id="hc">
     <canvas id="heat"></canvas>
+    <div id="crosshair"><div class="cx-v"></div><div class="cx-h"></div></div>
+    <div id="tooltip"></div>
     <div id="loading"><div class="ring"></div>CONNECTING…</div>
     <div id="err">
       <div class="etitle">⚠ API ERROR</div>
@@ -473,6 +544,24 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </div>
   </div>
   <div id="pc"><div id="resizer"></div><canvas id="prof"></canvas></div>
+</div>
+
+<div id="replay-bar">
+  <button class="btn" id="rp-play" title="Play / pause replay">▶</button>
+  <select id="rp-speed" title="Replay speed (snapshots per second)">
+    <option value="1">1×</option>
+    <option value="5" selected>5×</option>
+    <option value="15">15×</option>
+    <option value="30">30×</option>
+    <option value="60">60×</option>
+  </select>
+  <span id="rp-time" class="sval">—</span>
+  <div id="rp-track">
+    <div id="rp-fill"></div>
+    <div id="rp-knob"></div>
+  </div>
+  <span id="rp-pos" class="slab">0 / 0</span>
+  <button class="btn" id="rp-exit" title="Exit replay (resume live polling)">EXIT</button>
 </div>
 
 <div id="footer">
@@ -491,6 +580,45 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
     <h1>GEXBOT · HEATMAP Δ — CONTROL REFERENCE</h1>
     <p>Live options-flow heatmap. Each column is a snapshot; each row is a strike (or offset from spot). Color shows the strike's raw GEX or change, normalized by the current Color-scale mode.</p>
+
+    <h2>Crosshair &amp; tooltip</h2>
+    <p>Hover anywhere in the chart area to see a vertical column-aligned line, a horizontal cursor-tracking line, and a floating tooltip with timestamp, the y-value at the cursor, the nearest strike + its raw value, and the snapshot's spot / zero-γ / net-GEX. The tooltip auto-flips to the cursor's other side near the right and bottom edges.</p>
+
+    <h2>Mark (annotations)</h2>
+    <p>Persistent markup layer for journaling key levels and times. Saved to the browser's IndexedDB, scoped to <code>(ticker, expiry, overlay)</code>, and survives reloads. Three types selectable in the <b>Mark</b> dropdown:</p>
+    <dl>
+      <dt>price line</dt>
+      <dd>Click anywhere in the chart → drops a horizontal dashed line at that absolute price. Renders correctly across Y-axis modes (absolute, offset pts, offset %) — the price is preserved, the y-position adapts.</dd>
+      <dt>time marker</dt>
+      <dd>Click → vertical dashed line at the snapshot under the cursor. Useful for marking releases (CPI, FOMC, options expiration close).</dd>
+      <dt>point + note</dt>
+      <dd>Click → small dot at (price, time) with a free-text label. Use for one-off observations ("first 0DTE wall", "M+ flipped").</dd>
+    </dl>
+    <p><b>Right-click</b> any annotation (within ~8 px) to delete it. The <b>⌫</b> button next to the dropdown clears <i>all</i> annotations for the current ticker/expiry/overlay.</p>
+
+    <h2>Replay</h2>
+    <p>The <b>REPLAY</b> button opens a scrubber bar across the bottom of the dashboard. Live polling pauses; you can:</p>
+    <dl>
+      <dt>▶ / ❚❚</dt>
+      <dd>Play / pause the playhead. Speed selector picks snapshots-per-second (1× = real-time, 60× = one minute of session per second).</dd>
+      <dt>Drag the knob</dt>
+      <dd>Scrub to any point in the buffer. Click the track to jump.</dd>
+      <dt>EXIT</dt>
+      <dd>Leave replay; live polling resumes from where you paused, jumping back to the live edge.</dd>
+    </dl>
+    <p>Combine with the IDB-restored sessions (<b>RESTORE</b>) to replay an entire trading day at 30× and study how walls formed and broke. This is the fastest way to build pattern recognition for option flow.</p>
+
+    <h2>Regime badge</h2>
+    <p>The <b>Regime</b> pill in the stats bar classifies the current GEX environment:</p>
+    <dl>
+      <dt>Long γ · fade</dt>
+      <dd>Spot is above zero gamma. Dealers are net long γ → they hedge by buying dips and selling rips → mean-reverting flow. Walls magnetize, breakouts often fail.</dd>
+      <dt>Short γ · chase</dt>
+      <dd>Spot is below zero gamma. Dealers are net short γ → they hedge by selling dips and buying rips → trend-amplifying flow. Walls become barriers; breakouts accelerate.</dd>
+      <dt>Flip · ZG ±X%</dt>
+      <dd>Spot is within ±5 bp of zero gamma — transitional zone, neither regime is committed. Treat carefully.</dd>
+    </dl>
+    <div class="tip">The regime tells you <i>how to interpret</i> every other signal on screen. A wall in long-γ vs short-γ behaves differently — same data, different read.</div>
 
     <h2>Measure</h2>
     <p>Chooses <b>what the cell value is</b>.</p>
@@ -739,15 +867,22 @@ function dateYMD(ts) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// Schema v2 adds an `annotations` store for the persistent markup layer
+// (price lines, time markers, notes) — see ANNOTATIONS section below.
+const IDB_ANNOT = 'annotations';
 function openIdb() {
   if (__idb) return Promise.resolve(__idb);
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) {
         const store = db.createObjectStore(IDB_STORE, { autoIncrement: true });
         store.createIndex('byKeyDate', ['ticker', 'expiry', 'greek', 'dateYMD']);
+      }
+      if (!db.objectStoreNames.contains(IDB_ANNOT)) {
+        const ann = db.createObjectStore(IDB_ANNOT, { keyPath: 'id', autoIncrement: true });
+        ann.createIndex('byKey', ['ticker', 'expiry', 'greek']);
       }
     };
     req.onsuccess = () => { __idb = req.result; resolve(__idb); };
@@ -816,6 +951,50 @@ function idbClearToday(ticker, expiry, greek) {
     const tx    = db.transaction(IDB_STORE, 'readwrite');
     const idx   = tx.objectStore(IDB_STORE).index('byKeyDate');
     const range = IDBKeyRange.only([ticker, expiry, greek, dateYMD(Date.now())]);
+    const req   = idx.openCursor(range);
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (!cur) return;
+      cur.delete();
+      cur.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => resolve();
+  }));
+}
+
+// ── Annotation IDB helpers ─────────────────────────────────────────────────
+function idbAddAnnotation(a) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_ANNOT, 'readwrite');
+    const req = tx.objectStore(IDB_ANNOT).add(a);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+function idbListAnnotations(ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx    = db.transaction(IDB_ANNOT, 'readonly');
+    const idx   = tx.objectStore(IDB_ANNOT).index('byKey');
+    const range = IDBKeyRange.only([ticker, expiry, greek]);
+    const req   = idx.getAll(range);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+function idbDeleteAnnotation(id) {
+  return openIdb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_ANNOT, 'readwrite');
+    tx.objectStore(IDB_ANNOT).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  }));
+}
+function idbClearAllAnnotations(ticker, expiry, greek) {
+  return openIdb().then(db => new Promise((resolve) => {
+    const tx    = db.transaction(IDB_ANNOT, 'readwrite');
+    const idx   = tx.objectStore(IDB_ANNOT).index('byKey');
+    const range = IDBKeyRange.only([ticker, expiry, greek]);
     const req   = idx.openCursor(range);
     req.onsuccess = () => {
       const cur = req.result;
@@ -2511,7 +2690,30 @@ function renderProfile() {
   }
 }
 
-function render() { refreshPaletteCache(); renderHeat(); renderProfile(); }
+// Synchronous renderer — used directly by the rAF wrapper, by hot-paths that
+// need to read post-render state immediately, and as a fallback if rAF is
+// unavailable (none of our targets, but cheap insurance).
+function _renderNow() {
+  refreshPaletteCache();
+  renderHeat();
+  renderProfile();
+  if (typeof renderAnnotations === 'function') renderAnnotations();
+  if (typeof renderReplayBar  === 'function') renderReplayBar();
+}
+// Public render() — coalesced via requestAnimationFrame. Many callsites
+// (mousemove drag, wheel zoom, fetch ingest, control changes) call this at
+// well over 60 Hz; we only ever paint once per frame regardless of how many
+// times it's invoked. ~50 % responsiveness boost during heavy interaction.
+let _renderScheduled = false;
+function render() {
+  if (_renderScheduled) return;
+  _renderScheduled = true;
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => { _renderScheduled = false; _renderNow(); });
+  } else {
+    _renderScheduled = false; _renderNow();
+  }
+}
 
 // ═══════════════════════════════════════════════════════
 //  STATS + UI
@@ -2531,6 +2733,38 @@ function updateStats(meta) {
   sv('v-zg', meta.zeroG,  'yel');
   sv('v-mp', meta.majPos, 'pos');
   sv('v-mn', meta.majNeg, 'neg');
+
+  // ── GEX regime classifier ───────────────────────────────────────────────
+  // Long γ (spot above zero-gamma): dealers are net long gamma → they hedge by
+  // BUYING dips and SELLING rips → mean-reverting flow.
+  // Short γ (spot below zero-gamma): dealers are net short gamma → they hedge
+  // by SELLING dips and BUYING rips → trend-amplifying flow.
+  // Arrow shows expected dealer net direction at current spot, NOT direction of
+  // the underlying.
+  const rgEl = document.getElementById('v-rg');
+  const sp = +meta.spot;
+  const zg = +meta.zeroG;
+  const ng = +meta.netGex;
+  rgEl.classList.remove('long', 'short', 'flat');
+  if (!(sp > 0) || !isFinite(zg) || zg === 0) {
+    rgEl.textContent = '—';
+  } else {
+    const dist = sp - zg;                            // + above ZG, − below
+    const pct  = Math.abs(dist) / sp * 100;          // % from ZG
+    const flat = pct < 0.05;                         // within 5 bp → transitional
+    if (flat) {
+      rgEl.classList.add('flat');
+      rgEl.textContent = `Flip · ZG ${zg.toFixed(0)} · ±${pct.toFixed(2)}%`;
+    } else if (dist > 0) {
+      rgEl.classList.add('long');
+      // Long γ: above ZG → dealers fade. If spot is rising, dealers sell into it.
+      rgEl.textContent = `Long γ · fade · ZG ${zg.toFixed(0)}`;
+    } else {
+      rgEl.classList.add('short');
+      // Short γ: below ZG → dealers chase. If spot is falling, dealers sell more.
+      rgEl.textContent = `Short γ · chase · ZG ${zg.toFixed(0)}`;
+    }
+  }
 
   const badge = document.getElementById('v-mode');
   // Clear inline styles so the badge inherits CSS-variable-driven theme colors.
@@ -2564,6 +2798,162 @@ function startTimer() {
   timer = setInterval(fetchData, ms);
 }
 function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+
+// ═══════════════════════════════════════════════════════
+//  REPLAY — scrub & play back the current buffer
+// ═══════════════════════════════════════════════════════
+// Replay drives `scrollOffset` over time. While active:
+//  - live polling is paused (running=false; LIVE button reflects pause)
+//  - the scrubber knob shows the playhead position over the buffer
+//  - play/pause + speed selector advance the playhead at N snaps/sec
+//  - dragging the knob jumps the playhead
+//  - clicking the track jumps to that position
+//  - EXIT exits replay and restores the previous live state
+const REPLAY = {
+  active: false,
+  playing: false,
+  speed: 5,            // snapshots per second
+  // Internal state preserved across enter/exit:
+  prevRunning: false,  // was live polling on before enter?
+  prevScroll:  0,      // scrollOffset before enter
+  prevFollow:  true,   // followLive before enter
+  rafTick:     0,      // RAF handle for the playback loop
+  lastTickMs:  0,      // last frame timestamp for dt-based stepping
+  // Playhead = absolute snapshot index in [0, snapshots.length-1].
+  // Mirrored from scrollOffset on entry; updated as user scrubs / plays.
+  playhead:    0,
+};
+
+function replayPlayheadIndex() {
+  return Math.max(0, Math.min(snapshots.length - 1, snapshots.length - 1 - scrollOffset));
+}
+function replaySetPlayhead(idx) {
+  REPLAY.playhead = Math.max(0, Math.min(snapshots.length - 1, Math.round(idx)));
+  scrollOffset = (snapshots.length - 1) - REPLAY.playhead;
+  followLive = false;
+  render();
+}
+function replayEnter() {
+  if (REPLAY.active) return;
+  if (!snapshots.length) { alert('Nothing to replay yet — wait for some snapshots to accumulate, or RESTORE / LOAD a session.'); return; }
+  REPLAY.active = true;
+  REPLAY.prevRunning = running;
+  REPLAY.prevScroll  = scrollOffset;
+  REPLAY.prevFollow  = followLive;
+  if (running) {
+    running = false;
+    const b = document.getElementById('btnLive');
+    b.textContent = '⏸ PAUSED'; b.classList.remove('on','pulse');
+    stopTimer();
+  }
+  REPLAY.playhead = replayPlayheadIndex();
+  document.getElementById('replay-bar').classList.add('on');
+  replayUpdateUI();
+  render();
+}
+function replayExit() {
+  if (!REPLAY.active) return;
+  replayPause();
+  REPLAY.active = false;
+  document.getElementById('replay-bar').classList.remove('on');
+  // Restore previous state: jump back to live edge, resume polling if it was on.
+  scrollOffset = 0; followLive = true;
+  if (REPLAY.prevRunning) {
+    running = true;
+    const b = document.getElementById('btnLive');
+    b.textContent = '● LIVE'; b.classList.add('on','pulse');
+    startTimer();
+  }
+  render();
+}
+function replayPlay() {
+  if (!REPLAY.active || REPLAY.playing) return;
+  REPLAY.playing = true;
+  document.getElementById('rp-play').textContent = '❚❚';
+  REPLAY.lastTickMs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  function tick(t) {
+    if (!REPLAY.playing) return;
+    const now = t || (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const dt = (now - REPLAY.lastTickMs) / 1000;
+    REPLAY.lastTickMs = now;
+    const next = REPLAY.playhead + dt * REPLAY.speed;
+    if (next >= snapshots.length - 1) {
+      replaySetPlayhead(snapshots.length - 1);
+      replayUpdateUI();
+      replayPause();
+      return;
+    }
+    replaySetPlayhead(next);
+    replayUpdateUI();
+    REPLAY.rafTick = requestAnimationFrame(tick);
+  }
+  REPLAY.rafTick = requestAnimationFrame(tick);
+}
+function replayPause() {
+  REPLAY.playing = false;
+  if (REPLAY.rafTick) cancelAnimationFrame(REPLAY.rafTick);
+  REPLAY.rafTick = 0;
+  const b = document.getElementById('rp-play');
+  if (b) b.textContent = '▶';
+}
+function replayUpdateUI() {
+  if (!REPLAY.active) return;
+  const n = snapshots.length;
+  const i = REPLAY.playhead;
+  const frac = n > 1 ? (i / (n - 1)) : 0;
+  const trackEl = document.getElementById('rp-track');
+  const tw = trackEl.clientWidth;
+  document.getElementById('rp-fill').style.width = (frac * tw) + 'px';
+  document.getElementById('rp-knob').style.left  = (frac * tw) + 'px';
+  document.getElementById('rp-pos').textContent  = `${i + 1} / ${n}`;
+  if (snapshots[Math.round(i)]) {
+    document.getElementById('rp-time').textContent = tsFormatter('hms').format(new Date(snapshots[Math.round(i)].ts));
+  }
+}
+function renderReplayBar() { replayUpdateUI(); }
+
+// Track interactions: click jumps; knob drag scrubs.
+(function () {
+  const track = document.getElementById('rp-track');
+  const knob  = document.getElementById('rp-knob');
+  let scrubbing = false;
+  function jumpToClientX(cx) {
+    if (!REPLAY.active || !snapshots.length) return;
+    const r = track.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (cx - r.left) / Math.max(1, r.width)));
+    replaySetPlayhead(frac * (snapshots.length - 1));
+    replayUpdateUI();
+  }
+  track.addEventListener('mousedown', e => {
+    if (e.target === knob) return;             // knob handles its own drag
+    jumpToClientX(e.clientX);
+  });
+  knob.addEventListener('mousedown', e => {
+    e.preventDefault();
+    scrubbing = true; knob.classList.add('dragging');
+    if (REPLAY.playing) replayPause();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!scrubbing) return;
+    jumpToClientX(e.clientX);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!scrubbing) return;
+    scrubbing = false; knob.classList.remove('dragging');
+  });
+  document.getElementById('rp-play').addEventListener('click', () => {
+    if (!REPLAY.active) return;
+    if (REPLAY.playing) replayPause();
+    else                replayPlay();
+  });
+  document.getElementById('rp-speed').addEventListener('change', e => {
+    REPLAY.speed = parseFloat(e.target.value) || 5;
+  });
+  document.getElementById('rp-exit').addEventListener('click', replayExit);
+  document.getElementById('btnReplay').addEventListener('click', () => {
+    if (REPLAY.active) replayExit(); else replayEnter();
+  });
+})();
 
 // ═══════════════════════════════════════════════════════
 //  CONTROLS
@@ -2750,6 +3140,180 @@ document.getElementById('btnLoad').addEventListener('click', () => {
 })();
 
 // ═══════════════════════════════════════════════════════
+//  ANNOTATIONS — persistent markup layer (IDB-backed)
+// ═══════════════════════════════════════════════════════
+// Annotations are scoped to (ticker, expiry, greek) and survive across
+// sessions and dashboard reloads. Three types:
+//   price — horizontal line at an absolute price
+//   time  — vertical line at an absolute timestamp
+//   note  — labeled point at (price, ts), draws a small dot + label
+// Loaded on startup, refreshed when the ticker/expiry/greek selectors
+// change. Drop via Mark dropdown + click in chart area. Right-click an
+// annotation (within ANN_HIT_PX) to delete.
+let __annotations = [];        // cached list for the current key
+const ANN_HIT_PX  = 8;         // right-click delete proximity in CSS px
+
+function annotKey() {
+  return [
+    document.getElementById('sTicker').value,
+    document.getElementById('sExpiry').value,
+    document.getElementById('sGreek').value,
+  ];
+}
+
+async function reloadAnnotations() {
+  const [t, e, g] = annotKey();
+  try {
+    __annotations = await idbListAnnotations(t, e, g);
+  } catch (err) {
+    __annotations = [];
+  }
+  if (snapshots.length) render();
+}
+
+// Compute the on-screen position of an annotation given current render
+// metrics. Returns {x, y, vis} where vis=false if it's outside the
+// drawing area (clipped, not drawn).
+function annotPos(a, m, W, H) {
+  const drawH = H - TAX;
+  const drawWright = W - LGAP - 2;
+  let x = null, y = null;
+  if (a.type === 'price' || a.type === 'note') {
+    const sp = snapshots.length ? (snapshots[snapshots.length - 1].meta.spot || 0) : 0;
+    const yv = yValue(a.price, sp);
+    if (yDomain.max > yDomain.min) y = yToPx(yv, H);
+  }
+  if (a.type === 'time' || a.type === 'note') {
+    if (snapshots.length) {
+      // Find nearest source snapshot to a.ts; convert to its visible col.
+      let bestI = -1, bestDt = Infinity;
+      for (let i = 0; i < snapshots.length; i++) {
+        const dt = Math.abs(snapshots[i].ts - a.ts);
+        if (dt < bestDt) { bestDt = dt; bestI = i; }
+      }
+      if (bestI >= 0) {
+        const k = Math.floor((bestI - m.startI) / m.binSize);
+        if (k >= 0 && k < m.nCols) {
+          x = m.effPAX + k * m.effColW + m.effColW / 2;
+        }
+      }
+    }
+  }
+  const vis = (a.type === 'price') ? (y !== null && y >= 0 && y <= drawH)
+            : (a.type === 'time')  ? (x !== null && x >= m.effPAX && x <= drawWright)
+            : (x !== null && y !== null && y >= 0 && y <= drawH && x >= m.effPAX && x <= drawWright);
+  return { x, y, vis };
+}
+
+function renderAnnotations() {
+  if (!snapshots.length || !__annotations.length) return;
+  const W  = heatCV.clientWidth;
+  const H  = heatCV.clientHeight;
+  const m  = renderMetrics();
+  heatCX.save();
+  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const a of __annotations) {
+    const p = annotPos(a, m, W, H);
+    if (!p.vis) continue;
+    const color = a.color || (a.type === 'price' ? THEME.spot : a.type === 'time' ? '#ffd830' : '#ff8840');
+    if (a.type === 'price') {
+      heatCX.strokeStyle = color; heatCX.lineWidth = 1; heatCX.setLineDash([4, 3]);
+      heatCX.beginPath(); heatCX.moveTo(m.effPAX, p.y); heatCX.lineTo(W - LGAP - 2, p.y); heatCX.stroke();
+      heatCX.setLineDash([]);
+      heatCX.fillStyle = color; heatCX.font = `600 11px ${F_UI}`; heatCX.textAlign = 'left';
+      const lbl = (a.label ? a.label + '  ' : '') + (+a.price).toFixed(2);
+      heatCX.fillText(lbl, m.effPAX + 4, p.y - 3);
+    } else if (a.type === 'time') {
+      heatCX.strokeStyle = color; heatCX.lineWidth = 1; heatCX.setLineDash([4, 3]);
+      heatCX.beginPath(); heatCX.moveTo(p.x, 0); heatCX.lineTo(p.x, H - TAX); heatCX.stroke();
+      heatCX.setLineDash([]);
+      heatCX.fillStyle = color; heatCX.font = `600 11px ${F_UI}`; heatCX.textAlign = 'center';
+      const lbl = a.label || tsFormatter('hm').format(new Date(a.ts));
+      heatCX.fillText(lbl, p.x, 12);
+    } else if (a.type === 'note') {
+      heatCX.fillStyle = color; heatCX.strokeStyle = THEME.bg; heatCX.lineWidth = 1.5;
+      heatCX.beginPath(); heatCX.arc(p.x, p.y, 4, 0, Math.PI * 2); heatCX.fill(); heatCX.stroke();
+      heatCX.fillStyle = color; heatCX.font = `600 11px ${F_UI}`; heatCX.textAlign = 'left';
+      const lbl = a.label || ((+a.price).toFixed(2));
+      heatCX.fillText(lbl, p.x + 7, p.y - 4);
+    }
+  }
+  heatCX.restore();
+}
+
+// Hit-test: returns the nearest annotation to (offsetX, offsetY) within
+// ANN_HIT_PX, or null.
+function annotHitTest(offsetX, offsetY) {
+  if (!snapshots.length) return null;
+  const W = heatCV.clientWidth, H = heatCV.clientHeight;
+  const m = renderMetrics();
+  let best = null, bestD = ANN_HIT_PX + 0.001;
+  for (const a of __annotations) {
+    const p = annotPos(a, m, W, H);
+    if (!p.vis) continue;
+    let d = Infinity;
+    if (a.type === 'price' && p.y !== null) d = Math.abs(offsetY - p.y);
+    if (a.type === 'time'  && p.x !== null) d = Math.abs(offsetX - p.x);
+    if (a.type === 'note'  && p.x !== null && p.y !== null)
+      d = Math.hypot(offsetX - p.x, offsetY - p.y);
+    if (d < bestD) { bestD = d; best = a; }
+  }
+  return best;
+}
+
+// Drop a new annotation at the cursor based on the current Mark dropdown.
+async function annotDrop(offsetX, offsetY) {
+  const type = document.getElementById('sAnnotType').value;
+  if (type === 'off') return false;
+  if (!snapshots.length) return false;
+  const W = heatCV.clientWidth, H = heatCV.clientHeight;
+  // Reject clicks outside the chart area.
+  if (offsetX < LGAP || offsetX > W - PAX - 4 || offsetY < 0 || offsetY > H - TAX) return false;
+
+  const m = renderMetrics();
+  const k = Math.floor((offsetX - m.effPAX) / m.effColW);
+  const ci = Math.min(snapshots.length - 1, Math.max(0, m.startI + k * m.binSize + m.binSize - 1));
+  const ts = snapshots[ci].ts;
+  const sp = snapshots[ci].meta.spot || 0;
+  const yv = pxToY(offsetY, H);
+  // Convert visible y-value back to absolute price so annotations render
+  // correctly across yMode changes and as spot drifts.
+  let price;
+  if (yMode() === 'abs') price = yv;
+  else if (yMode() === 'rel_pts') price = sp + yv;
+  else                            price = sp * (1 + yv / 100);
+
+  const [tk, ex, gk] = annotKey();
+  const label = (type === 'note') ? (prompt('Note label (Enter for blank):') || '') : '';
+  const a = { ticker: tk, expiry: ex, greek: gk, type, price, ts, label, createdAt: Date.now() };
+  try {
+    a.id = await idbAddAnnotation(a);
+    __annotations.push(a);
+    render();
+  } catch (e) { /* silent */ }
+  return true;
+}
+
+async function annotDelete(a) {
+  if (!a) return;
+  try { await idbDeleteAnnotation(a.id); } catch (e) {}
+  __annotations = __annotations.filter(x => x.id !== a.id);
+  render();
+}
+
+// Wire up the dropdown + clear-all button.
+document.getElementById('btnAnnotClear').addEventListener('click', async () => {
+  if (!__annotations.length) return;
+  if (!confirm(`Delete all ${__annotations.length} annotation(s) for this ticker / expiry / overlay?`)) return;
+  const [t, e, g] = annotKey();
+  try { await idbClearAllAnnotations(t, e, g); } catch (err) {}
+  __annotations = [];
+  render();
+});
+// Initial load + reload when (ticker, expiry, greek) changes.
+reloadAnnotations();
+
+// ═══════════════════════════════════════════════════════
 //  HELP OVERLAY
 // ═══════════════════════════════════════════════════════
 (function () {
@@ -2774,6 +3338,8 @@ document.getElementById('btnLoad').addEventListener('click', () => {
       // The RESTORE button reflects the current ticker/expiry/greek tuple,
       // so re-query its count whenever any of those change.
       refreshRestoreButton();
+      // Annotations are scoped to the same tuple — refresh from disk.
+      reloadAnnotations();
     }
     if (id === 'sColW') colWOverride = null;
     if (id === 'sYAxis') { zoomLock = false; resetYDomain(); }
@@ -2835,6 +3401,16 @@ heatCV.addEventListener('wheel', e => {
 }, { passive: false });
 
 heatCV.addEventListener('mousedown', e => {
+  // ── Annotation interactions take priority over drag ──────────────────
+  // Right-click (button === 2) deletes the nearest annotation regardless of
+  // mode; left-click while a Mark type is selected drops a new one.
+  if (e.button === 2) {
+    const hit = annotHitTest(e.offsetX, e.offsetY);
+    if (hit) { e.preventDefault(); annotDelete(hit); return; }
+  }
+  if (e.button === 0 && document.getElementById('sAnnotType').value !== 'off') {
+    if (annotDrop(e.offsetX, e.offsetY)) { e.preventDefault(); return; }
+  }
   dragging = true;
   dragX0 = e.clientX; dragY0 = e.clientY;
   dragYDom0 = { min: yDomain.min, max: yDomain.max };
@@ -2856,6 +3432,10 @@ heatCV.addEventListener('mousedown', e => {
     zoomLock = true;
   }
 });
+
+// Suppress the native context menu over the heatmap so right-click can
+// be used to delete annotations.
+heatCV.addEventListener('contextmenu', e => e.preventDefault());
 // Helper: derive the same render metrics renderHeat uses, so mouse handlers
 // agree on output-column → source-snapshot mapping. Returns:
 //   colWd       — device pixels per output column (≥ 1)
@@ -2925,7 +3505,9 @@ heatCV.addEventListener('mousemove', e => {
     else                  heatCV.style.cursor = 'crosshair';
   }
   if (yDomain.max > yDomain.min) {
-    const yv = pxToY(e.offsetY, heatCV.clientHeight);
+    const W  = heatCV.clientWidth;
+    const H  = heatCV.clientHeight;
+    const yv = pxToY(e.offsetY, H);
     const m  = renderMetrics();
     // Output column under cursor → bin's last source ci.
     const k  = Math.floor((e.offsetX - m.effPAX) / m.effColW);
@@ -2938,12 +3520,64 @@ heatCV.addEventListener('mousemove', e => {
     else                            yLabel = (yv >= 0 ? '+' : '') + yv.toFixed(3) + '%';
     const ts = snap ? '  ·  ' + tsFormatter('hms').format(new Date(snap.ts)) : '';
     document.getElementById('cur').textContent = `${yLabel}${ts}`;
+
+    // ── Crosshair + tooltip ────────────────────────────────────────────
+    const overChart = e.offsetX >= m.effPAX && e.offsetX < W - LGAP - 2 &&
+                      e.offsetY >= 0       && e.offsetY < H - TAX;
+    if (overChart && snap && !dragging) {
+      const cross = document.getElementById('crosshair');
+      const tip   = document.getElementById('tooltip');
+      cross.classList.add('on');
+      // Snap V-line to the column center for a "this is what you're reading" feel.
+      const colCenterX = m.effPAX + k * m.effColW + m.effColW / 2;
+      cross.querySelector('.cx-v').style.left = colCenterX + 'px';
+      cross.querySelector('.cx-h').style.top  = e.offsetY + 'px';
+      // Find nearest strike to cursor y-value to display its current vol.
+      let nearest = null, nearestDy = Infinity;
+      for (const st of snap.strikes) {
+        const styv = yValue(st.price, snap.meta.spot || 0);
+        const dy   = Math.abs(styv - yv);
+        if (dy < nearestDy) { nearest = st; nearestDy = dy; }
+      }
+      const meta = snap.meta;
+      const sp   = meta.spot;
+      const vAtNearest = nearest ? nearest.vol : null;
+      const cls = (vAtNearest === null) ? '' : (vAtNearest > 0 ? 'pos' : (vAtNearest < 0 ? 'neg' : ''));
+      tip.classList.add('on');
+      tip.innerHTML =
+        `<div class="tt-time">${tsFormatter('hms').format(new Date(snap.ts))}</div>` +
+        `<div class="tt-row"><span class="tt-key">y</span><span class="tt-val">${yLabel}</span></div>` +
+        (nearest
+          ? `<div class="tt-row"><span class="tt-key">strike</span><span class="tt-val">${(+nearest.price).toFixed(2)}</span></div>` +
+            `<div class="tt-row"><span class="tt-key">vol</span><span class="tt-val ${cls}">${(+vAtNearest).toFixed(2)}</span></div>`
+          : '') +
+        `<div class="tt-sep"></div>` +
+        (sp > 0 ? `<div class="tt-row"><span class="tt-key">spot</span><span class="tt-val spot">${(+sp).toFixed(2)}</span></div>` : '') +
+        (isFinite(+meta.zeroG) && +meta.zeroG !== 0
+          ? `<div class="tt-row"><span class="tt-key">zero γ</span><span class="tt-val">${(+meta.zeroG).toFixed(0)}</span></div>` : '') +
+        (isFinite(+meta.netGex)
+          ? `<div class="tt-row"><span class="tt-key">net GEX</span><span class="tt-val ${+meta.netGex >= 0 ? 'pos' : 'neg'}">${(+meta.netGex).toFixed(0)}</span></div>` : '');
+      // Position tooltip — keep within chart bounds with a small offset.
+      const TT_OFF = 14;
+      const tw = tip.offsetWidth || 200;
+      const th = tip.offsetHeight || 110;
+      let tx = e.offsetX + TT_OFF, ty = e.offsetY + TT_OFF;
+      if (tx + tw > W - LGAP - 4) tx = e.offsetX - TT_OFF - tw;
+      if (ty + th > H - TAX - 4)  ty = e.offsetY - TT_OFF - th;
+      tip.style.left = Math.max(2, tx) + 'px';
+      tip.style.top  = Math.max(2, ty) + 'px';
+    } else {
+      document.getElementById('crosshair').classList.remove('on');
+      document.getElementById('tooltip').classList.remove('on');
+    }
   }
 });
 heatCV.addEventListener('mouseup', () => dragging = false);
 heatCV.addEventListener('mouseleave', () => {
   dragging = false;
   document.getElementById('cur').textContent = '';
+  document.getElementById('crosshair').classList.remove('on');
+  document.getElementById('tooltip').classList.remove('on');
 });
 
 // Keyboard
