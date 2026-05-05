@@ -469,11 +469,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh detection. CUSUM presets (loose→extreme) flag persistent multi-bucket flow. Event detectors (burst / swarm / pump) flag sudden coordinated activity and stay quiet in steady state — useful for catching pumps in advance.">
+    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) fires fast on quick + strong changes — recommended default. CUSUM (persistence) fires slow on sustained multi-bucket flow. Event detectors (burst / swarm / pump) flag sudden coordinated activity.">
       <option value="off">off</option>
-      <optgroup label="Persistence (CUSUM + hysteresis)">
+      <optgroup label="Pulse — per-strike z-score (fast + strong)">
+        <option value="pulse_fast">fast (low threshold, short hold)</option>
+        <option value="pulse_normal" selected>normal</option>
+        <option value="pulse_strict">strict (high threshold, long hold)</option>
+      </optgroup>
+      <optgroup label="Persistence — CUSUM + hysteresis (sustained flow)">
         <option value="loose">loose</option>
-        <option value="normal" selected>normal</option>
+        <option value="normal">normal</option>
         <option value="strict">strict</option>
         <option value="tight">tight</option>
         <option value="severe">severe</option>
@@ -778,26 +783,42 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <p>Each is drawn as a horizontal trace across the visible columns. When the level jumps between strikes mid-session, the run at the old level ends and a new one starts at the new level — there's no vertical connector drawn through the intermediate prices.</p>
 
     <h2>MaxCh overlay</h2>
-    <p>The <b>MaxCh</b> selector overlays strikes that are absorbing sustained GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets each pick a winning strike every second, with adjacent strikes randomly trading places. The filter applies a per-strike <b>CUSUM</b> persistence test with <b>hysteresis</b> on top, so glyphs only appear once a strike has been firing across multiple buckets for several seconds, and only disappear once activity drops well below the entry threshold.</p>
+    <p>The <b>MaxCh</b> selector overlays strikes absorbing GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets (current/1m/5m/10m/15m/30m) each pick a winning strike every second, with adjacent strikes randomly trading places. Three filter families are available, each tuned for a different question.</p>
+
+    <h3>Pulse — per-strike z-score (fast + strong, recommended default)</h3>
+    <p>Each strike maintains its own EMA of |dir| (Roberts EMVar). When the current snap's magnitude exceeds <b>z<sub>fire</sub> × σ</b> above the strike's own baseline, it fires <i>immediately</i> — no multi-snap persistence required. Hold-and-exit hysteresis keeps the glyph on as long as <b>z ≥ z<sub>keep</sub></b>, otherwise a hold-timer counts down.</p>
     <dl>
-      <dt>off</dt><dd>No overlay.</dd>
-      <dt>loose</dt><dd>Fast trigger, more events shown. Use when the market is quiet and you want to see anything moving. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=4, h<sub>low</sub>=2)</span></dd>
-      <dt>normal <span style="color:#9aa">— default</span></dt><dd>Balanced — agg-mode-like density but stable across snapshots. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=6, h<sub>low</sub>=3)</span></dd>
-      <dt>strict</dt><dd>Only the strongest sustained events survive. Use during heavy flow when normal is still busy. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)</span></dd>
-      <dt>tight</dt><dd>~1.5× <code>strict</code>'s threshold. Same reference value, but a strike must accumulate longer before it lights up. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8)</span></dd>
-      <dt>severe</dt><dd>Both knobs raised: higher reference value (k=2.0) means small single-bucket prints decay faster than they accumulate, on top of a much higher threshold. Lone-bucket sporadic winners are effectively suppressed. <span style="color:#9aa">(k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11)</span></dd>
-      <dt>extreme</dt><dd>Only the most persistent multi-bucket events survive — minutes of sustained 3+-bucket dominance at the same strike. Most sessions will show very few glyphs. <span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
+      <dt>fast</dt><dd>Low threshold, short hold. Catches rapid wall changes the moment they break out. Some noise. <span style="color:#9aa">(EMA=10, z<sub>fire</sub>=1.5, hold=3)</span></dd>
+      <dt>normal <span style="color:#9aa">— default</span></dt><dd>Balanced. Fires on clean breakouts of moderate-or-greater magnitude; ignores random single-bucket noise. <span style="color:#9aa">(EMA=20, z<sub>fire</sub>=2.0, hold=5)</span></dd>
+      <dt>strict</dt><dd>High threshold, long hold. Only the cleanest, largest breakouts. Quiet sessions. <span style="color:#9aa">(EMA=30, z<sub>fire</sub>=3.0, hold=8)</span></dd>
     </dl>
-    <p>The added <b>tight / severe / extreme</b> tiers extend the same CUSUM + hysteresis machinery, escalating <i>h</i> (decision threshold — primary knob, ARL₀ grows ~exponentially in <i>h</i>) and then <i>k</i> (reference value, raises the noise-floor each accumulator must clear per snapshot). Use when even <code>strict</code> is producing too many glyphs.</p>
+    <p>Pulse is <b>magnitude-aware</b>: a strike that wins one bucket with a huge value will fire, where CUSUM (below) would filter it as "not persistent." This is the right detector for spotting fresh walls forming, sharp wall flips, and similar quick events.</p>
+
+    <h3>Persistence — CUSUM + hysteresis (sustained slow flow)</h3>
+    <p>Per-strike signed CUSUM (Page 1954) counts <i>bucket wins</i> with reference-value decay; hysteresis (Schmitt 1938) debounces display. By design <b>filters out fast events</b> in favor of multi-second sustained dominance. Use when you want to see "where is flow building over time" rather than "what just happened."</p>
+    <dl>
+      <dt>loose</dt><dd>Fast trigger for CUSUM, more events. Use in quiet markets. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=4, h<sub>low</sub>=2)</span></dd>
+      <dt>normal</dt><dd>Balanced CUSUM persistence. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=6, h<sub>low</sub>=3)</span></dd>
+      <dt>strict</dt><dd>Strongest sustained events only. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)</span></dd>
+      <dt>tight</dt><dd>~1.5× <code>strict</code>. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8)</span></dd>
+      <dt>severe</dt><dd>Both knobs raised. Lone-bucket prints decay faster than they accumulate. <span style="color:#9aa">(k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11)</span></dd>
+      <dt>extreme</dt><dd>Only the most persistent multi-bucket events. <span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
+    </dl>
 
     <h3>Event detectors — burst / swarm / pump</h3>
-    <p>The CUSUM presets above are <i>persistence</i> detectors — they require multi-second sustained activity before lighting up, which by design <b>filters out fast events like pumps</b>. The event detectors below complement that by firing on sudden coordinated activity and staying quiet in steady state.</p>
+    <p>Where Pulse fires per-strike and CUSUM fires per-strike-with-persistence, these fire on <i>aggregate snapshot conditions</i> — stay quiet in steady state, fire when something coordinated happens across many strikes at once.</p>
     <dl>
       <dt>burst</dt><dd>Velocity z-score across all firing strikes. Sums |dir| over each snapshot, tracks a sliding 60-snap mean and σ, fires when the current snap's total exceeds <b>mean + 2.5σ</b>. Glyphs render at strikes contributing ≥ 15% of the spike's total magnitude. Catches general activity surges anywhere in the chain. Quiet because it normalizes against recent baseline.</dd>
       <dt>swarm</dt><dd>Cluster detector. Fires when ≥ 2 same-sign firing strikes sit within ±5 price points of each other in the same snapshot, each carrying ≥ 5% of session max-abs. Catches "sweep" patterns where flow lights up a row of adjacent strikes simultaneously — signature of aggressive directional trading. Quiet because random single-strike noise rarely clusters.</dd>
       <dt>pump <span style="color:#9aa">— most stringent</span></dt><dd>Strict combination: <i>burst</i> condition (z ≥ 2.0, lowered slightly since combined) AND <i>swarm</i> condition AND the cluster center is within ±0.5% of latest spot. Designed for genuine pump precursors — coordinated near-spot directional surges. Will fire least often; expect long quiet periods punctuated by a few clean events per session.</dd>
     </dl>
-    <p>Event detectors and CUSUM presets answer different questions. Use a CUSUM preset for "where is flow building over time"; use an event detector for "is something happening right now." They're mutually exclusive in the dropdown — pick one based on what you're watching for.</p>
+    <p>The three families answer different questions:</p>
+    <ul>
+      <li><b>Pulse</b> — "what just changed at <i>this</i> strike" — per-strike velocity</li>
+      <li><b>CUSUM</b> — "where is sustained flow building" — per-strike persistence</li>
+      <li><b>Event detectors</b> — "is something coordinated happening right now" — snapshot-aggregate</li>
+    </ul>
+    <p>They're mutually exclusive in the dropdown — pick one based on what you're watching for.</p>
     <p><b>Glyph encoding</b>: color = direction of imbalance change (green = call-side accumulation, red = put-side accumulation); size = magnitude of the most recent print at the strike, normalized over the visible window; opacity = same.</p>
     <p><b>Reading the layer:</b> a band of glyphs at one strike across many consecutive snapshots = real persistent flow. The hysteresis means the strike won't drop in/out frame-by-frame at the threshold boundary — it stays "on" once it crosses the entry bar, until activity decays well below it. Solid clusters lining up vertically with the brightest heatmap bands are the "where the action is" strikes.</p>
     <p><b>Theory note</b>: the CUSUM detector (Page 1954) is minimax-optimal for change detection subject to a false-alarm bound (Lorden 1971); hysteresis (Schmitt 1938) is the canonical display-layer debouncer. Picked over Bayesian online changepoint detection (Adams &amp; MacKay 2007) and BVP-style multi-stream detectors (Xie &amp; Siegmund 2013) for simplicity — both available as upgrades if needed. Wavelets and microstructure-noise filters (Aït-Sahalia / Mykland / Zhang) and VPIN solve adjacent but distinct problems. The event detectors are simpler statistics (running z-score, cluster count) chosen for responsiveness rather than minimax optimality.</p>
@@ -2194,6 +2215,157 @@ function renderHeat() {
       return fired;
     };
 
+    // ── PULSE (v0.7.2 rework) ─────────────────────────────────────────
+    // Per-strike velocity detector designed for "quick + strong" changes.
+    //
+    // Why it exists: CUSUM (below) counts BUCKET wins, not magnitudes, and
+    // requires multi-snapshot persistence to fire. A strike that wins one
+    // bucket with a huge value once is filtered as noise, which silently
+    // drops fast moves like a sharp wall flip. Pulse fixes this by tracking
+    // each strike's own EMA of |dir| and firing on a z-score breakout.
+    //
+    // Algorithm per snapshot ci, per strike s:
+    //   1. m   = Σ |dir| over buckets that named s this snap (0 if absent)
+    //   2. z   = (m − μ_s) / max(σ_s, σ_floor)         [BEFORE update]
+    //   3. Roberts EMVar update: μ_s += α·Δ; σ²_s = (1−α)·(σ²_s + α·Δ²)
+    //   4. State machine:
+    //        OFF  → ON_signed  if z ≥ zFire  (fires on magnitude burst)
+    //        ON   → ON         if z ≥ zKeep  (refresh hold timer)
+    //        ON   → OFF        if hold timer counts down to 0
+    //
+    //   σ_floor = sessionMaxAbs · minSigmaPct   prevents σ→0 from making
+    //                                           every micro-perturbation fire
+    //
+    // Latency: 1 snapshot to fire on a clean burst. No persistence required.
+    // CUSUM (below) is kept for the "persistent slow flow" case it was
+    // designed for; pulse_normal is the new default.
+    const PULSE_PRESETS = {
+      pulse_fast:   { ema: 10, zFire: 1.5, zKeep: 0.5, hold: 3, minSigmaPct: 0.02, minSamples: 4 },
+      pulse_normal: { ema: 20, zFire: 2.0, zKeep: 0.7, hold: 5, minSigmaPct: 0.02, minSamples: 5 },
+      pulse_strict: { ema: 30, zFire: 3.0, zKeep: 1.0, hold: 8, minSigmaPct: 0.03, minSamples: 8 },
+    };
+    const pulsePreset = PULSE_PRESETS[maxChSel];
+    if (pulsePreset) {
+      const { ema, zFire, zKeep, hold, minSigmaPct, minSamples } = pulsePreset;
+      const alpha = 2 / (ema + 1);
+
+      // Session-wide |dir| max for the σ floor — same loop the swarm code
+      // does later. Cheap; runs once per render.
+      let sessionMaxAbs = 0;
+      for (const s of snapshots) {
+        const mp = s.meta.maxPriors;
+        if (!mp) continue;
+        for (let b = 0; b < 6; b++) {
+          const e = mp[b];
+          if (!e) continue;
+          const a = Math.abs(parseFloat(e[1]));
+          if (a > sessionMaxAbs) sessionMaxAbs = a;
+        }
+      }
+      const sigmaFloor = Math.max(1e-9, sessionMaxAbs * minSigmaPct);
+
+      // Per-strike tracker. Map: strike → {μ, σ², n, state, hold, peakMag,
+      //   lastZ, lastM, lastDir, zeroStreak}
+      const tracker = new Map();
+      const snapStates = new Array(nCols);
+      let globalMaxMag = 0;
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+
+        // Step 1: update baseline + compute z for every TRACKED strike
+        // (including absent ones — m=0). This keeps μ honest about how
+        // often strikes are quiet vs firing.
+        for (const cs of tracker.values()) {
+          const info = fired.get(cs.strike);
+          const m   = info ? info.absSum : 0;
+          const dir = info ? (info.dirSum >= 0 ? 1 : -1) : 0;
+
+          const sigma = Math.max(Math.sqrt(cs.s2), sigmaFloor);
+          cs.lastZ   = (cs.n >= minSamples) ? (m - cs.mu) / sigma : 0;
+          cs.lastM   = m;
+          cs.lastDir = dir;
+          cs.zeroStreak = (m === 0) ? cs.zeroStreak + 1 : 0;
+
+          // Roberts (1959) exponentially-weighted variance.
+          const delta = m - cs.mu;
+          cs.mu += alpha * delta;
+          cs.s2 = (1 - alpha) * (cs.s2 + alpha * delta * delta);
+          cs.n  += 1;
+        }
+
+        // Step 2: register first appearances. Seed with conservative
+        // baseline so the first sample doesn't trip its own z-score.
+        for (const [strike, info] of fired) {
+          if (!tracker.has(strike)) {
+            tracker.set(strike, {
+              strike,
+              mu: info.absSum * 0.5,
+              s2: Math.max(info.absSum * info.absSum * 0.25, sigmaFloor * sigmaFloor),
+              n:  1,
+              state: 0, hold: 0, peakMag: 0,
+              lastZ: 0,
+              lastM: info.absSum,
+              lastDir: info.dirSum >= 0 ? 1 : -1,
+              zeroStreak: 0,
+            });
+          }
+        }
+
+        // Step 3: state machine.
+        for (const cs of tracker.values()) {
+          if (cs.state === 0) {
+            if (cs.lastZ >= zFire && cs.lastM > 0) {
+              cs.state   = cs.lastDir || 1;
+              cs.hold    = hold;
+              cs.peakMag = cs.lastM;
+            }
+          } else {
+            if (cs.lastM > cs.peakMag) cs.peakMag = cs.lastM;
+            if (cs.lastZ >= zKeep && cs.lastM > 0) {
+              cs.hold = hold;                     // refresh while elevated
+              if (cs.lastDir !== 0) cs.state = cs.lastDir;
+            } else {
+              cs.hold -= 1;
+              if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+            }
+          }
+        }
+
+        // Step 4: capture render state at bin-end positions.
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const cs of tracker.values()) {
+                if (cs.state !== 0 && cs.peakMag > 0) {
+                  list.push({ strike: cs.strike, state: cs.state, mag: cs.peakMag });
+                  if (cs.peakMag > globalMaxMag) globalMaxMag = cs.peakMag;
+                }
+              }
+              snapStates[k] = list;
+            }
+          }
+        }
+
+        // Step 5: drop strikes that have been silent for a long time
+        // (state=0 and m=0 for ema·5 consecutive snaps). Keeps tracker
+        // bounded across long sessions.
+        const drainAge = ema * 5;
+        for (const [strike, cs] of tracker) {
+          if (cs.state === 0 && cs.zeroStreak > drainAge && cs.mu < sigmaFloor) {
+            tracker.delete(strike);
+          }
+        }
+      }
+
+      renderSnapStates(snapStates, globalMaxMag, maxChSel);
+    }
+
+    // ── CUSUM PRESETS (legacy, kept for "persistent slow flow") ──────
     // CUSUM ARL₀ (mean time between false alarms) grows roughly exponentially
     // in h and quadratically in k, so threshold is the primary stringency knob.
     // Keep hLow ≈ hHigh/2 so re-entry behavior matches the existing presets.

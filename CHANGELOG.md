@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.7.2] — MaxCh rework: new Pulse detector for quick + strong changes
+
+### The problem
+
+The CUSUM-based MaxCh had a structural blind spot. It counts *bucket
+wins* per snapshot, not magnitudes — a strike that wins one bucket with
+a huge value once is filtered as "not persistent" and never fires.
+Sharp wall flips, fresh walls forming, and similar high-magnitude
+single-event activity were silently dropped. CUSUM is correct for the
+"sustained slow flow" case it was designed for, just not for "quick +
+strong changes."
+
+### The fix
+
+New **Pulse** detector family. Per-strike Welford / Roberts EMVar
+baseline (online EMA + variance update). Each snapshot:
+
+1. `m = Σ |dir|` over buckets that named the strike (0 if absent)
+2. `z = (m − μ_strike) / max(σ_strike, σ_floor)` against the strike's
+   own baseline, before updating
+3. State machine: fires on `z ≥ z_fire` immediately (1-snap latency),
+   refreshes hold timer while `z ≥ z_keep`, exits when timer hits 0
+
+`σ_floor = sessionMaxAbs · minSigmaPct` prevents micro-perturbations
+firing after a long quiet period. Tracker self-prunes strikes silent
+for `EMA × 5` snaps to keep memory bounded.
+
+### Three new presets
+
+| Preset       | EMA | z_fire | z_keep | hold | σ_floor pct |
+|--------------|-----|--------|--------|------|-------------|
+| pulse_fast   | 10  | 1.5    | 0.5    | 3    | 2%          |
+| pulse_normal | 20  | 2.0    | 0.7    | 5    | 2%          |
+| pulse_strict | 30  | 3.0    | 1.0    | 8    | 3%          |
+
+### Other changes
+
+- **`pulse_normal` is the new default** MaxCh mode (was: CUSUM `normal`).
+  Existing CUSUM presets remain available under "Persistence" group.
+- **MaxCh dropdown reorganized** with three explicit groupings:
+  - Pulse — per-strike z-score (fast + strong)
+  - Persistence — CUSUM + hysteresis (sustained flow)
+  - Event detectors — burst / swarm / pump (snapshot-aggregate)
+- **Help overlay rewritten** for the three families. Each answers a
+  different question; pick one based on what you're watching for.
+- **Sign convention unchanged**: still uses `dir = −raw`. The open TODO
+  to verify that empirically (`todo_verify_maxch_sign.md`) is unaffected
+  — Pulse uses `Σ |raw|` for magnitude, which is sign-flip-invariant.
+
+### Notes
+
+- Auto-memory: `maxch_pulse_v0_7_2.md` documents the algorithm,
+  presets, and revisit triggers.
+- Latency: Pulse fires on the first snapshot of a clean breakout
+  (≤1 snap). CUSUM `normal` previously took 6–12 snapshots.
+
 ## [0.7.1] — Five new gamma modes (2.5 / 2.0 / 1.5 / 0.4 / 0.3)
 
 The Gamma dropdown previously offered three values (1.0, 0.7, 0.55) all
