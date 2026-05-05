@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.1] — Five new gamma modes (2.5 / 2.0 / 1.5 / 0.4 / 0.3)
+
+The Gamma dropdown previously offered three values (1.0, 0.7, 0.55) all
+on the lift-mids side. Five new options widen the contrast spectrum:
+
+- **γ = 2.5 / 2.0 / 1.5** — *peaks only* / *peaks only* / *emphasize highs.*
+  Mid-tones darken, only the largest walls remain bright. Useful in noisy
+  regimes where mid-magnitude flutter clutters the view; pair with the
+  **Hi-contrast** palette for max emphasis on the strongest signal.
+- **γ = 0.4 / 0.3** — *strong lift* / *extreme lift.* Mid-tones brighten;
+  any non-zero value reads as visibly bright. Useful for hunting fresh
+  walls just appearing or for catching low-magnitude detail near the
+  noise floor; pair with the **Stepped** palette for "is anything here?"
+  binary visibility.
+
+The dropdown is now ordered top-down from peaks-only (γ=2.5) through
+linear (γ=1.0) down to extreme-lift (γ=0.3), with one-line descriptors
+on each option. Help-overlay Gamma section rewritten with the curve
+intuition.
+
 ## [0.7.0] — Crosshair, annotations, replay, regime classifier, rAF coalescing
 
 A batch of UX-and-alpha additions selected from a brainstorm. Five of six

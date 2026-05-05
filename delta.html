@@ -410,11 +410,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   </div>
 
   <div class="ctrl">
-    <span class="lbl">Gamma</span>
+    <span class="lbl" title="Contrast curve. Values > 1 darken mid-tones (only the largest walls show — kills noise). Values < 1 lift mid-tones (small magnitudes pop — see micro-walls).">Gamma</span>
     <select id="sGamma">
-      <option value="1" selected>Linear</option>
-      <option value="0.7">0.7</option>
-      <option value="0.55">0.55 (old)</option>
+      <option value="2.5">2.5 — peaks only (extreme)</option>
+      <option value="2">2.0 — peaks only</option>
+      <option value="1.5">1.5 — emphasize highs</option>
+      <option value="1" selected>1.0 — Linear</option>
+      <option value="0.7">0.7 — mild lift</option>
+      <option value="0.55">0.55 — old default</option>
+      <option value="0.4">0.4 — strong lift</option>
+      <option value="0.3">0.3 — extreme lift</option>
     </select>
   </div>
 
@@ -695,15 +700,26 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </dl>
 
     <h2>Gamma</h2>
-    <p>Non-linearity of the color mapping. Controls whether brightness reflects value linearly or is compressed for perceptual lift.</p>
+    <p>Non-linearity of the color mapping. Brightness = <code>v<sup>γ</sup></code> (after sign and palette compose). Picture a curve with <i>v</i> on the x-axis and rendered brightness on the y-axis: γ&nbsp;=&nbsp;1 is the diagonal, γ&nbsp;&gt;&nbsp;1 sags below it (mid-tones darken — only big peaks show), γ&nbsp;&lt;&nbsp;1 bows above it (mid-tones brighten — small magnitudes pop).</p>
     <dl>
-      <dt>Linear (1.0)</dt>
+      <dt>2.5 — peaks only (extreme)</dt>
+      <dd>Aggressive contrast. Anything below ~50% magnitude vanishes. Use when one or two giant walls dominate and you want to see <i>only</i> them, with everything else as background.</dd>
+      <dt>2.0 — peaks only</dt>
+      <dd>Strong noise suppression. Mid-magnitude activity dims significantly; the largest walls remain at full intensity. Good for "where are the real walls today, ignore everything else."</dd>
+      <dt>1.5 — emphasize highs</dt>
+      <dd>Moderate contrast. Slight darkening of mids; peaks are clearly the brightest things on screen. Useful in noisy regimes where mid-magnitude flutter clutters the view.</dd>
+      <dt>1.0 — Linear</dt>
       <dd>True proportional rendering. A cell at 50% of max is exactly half as bright as full saturation. Most honest, but near-zero cells look close to black.</dd>
-      <dt>0.7</dt>
-      <dd>Mild brightness lift for low values without destroying magnitude contrast.</dd>
-      <dt>0.55 (old)</dt>
-      <dd>Original behavior. Heavily compresses mid-to-high and lifts low values — punchy visual but flattens differences between large magnitudes.</dd>
+      <dt>0.7 — mild lift</dt>
+      <dd>Slight brightness lift for low values without destroying magnitude contrast. Often the best "general purpose" non-linear setting.</dd>
+      <dt>0.55 — old default</dt>
+      <dd>Original behavior pre-v0.6.x. Heavily compresses mid-to-high and lifts low values — punchy visual but flattens differences between large magnitudes.</dd>
+      <dt>0.4 — strong lift</dt>
+      <dd>Aggressive low-magnitude visibility. Tiny walls become clearly visible. Cost: large walls all look similarly saturated, so magnitude differences at the top compress.</dd>
+      <dt>0.3 — extreme lift</dt>
+      <dd>Almost binary "is there anything here?" view. Any non-zero value reads as bright. Use when hunting for fresh walls just appearing or fading detail near the noise floor.</dd>
     </dl>
+    <div class="tip">Pair γ&nbsp;&gt;&nbsp;1 with the <b>Hi-contrast</b> palette for max-emphasis-on-peaks; pair γ&nbsp;&lt;&nbsp;1 with the <b>Stepped</b> palette for max-visibility-on-everything.</div>
 
     <h2>Blend</h2>
     <p>How each strike fills its vertical pixel footprint in the heatmap.</p>
