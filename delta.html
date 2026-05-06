@@ -617,6 +617,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="1">★+</option>
     </select>
     <button class="btn" id="btnSetupLog" title="Show full setup-fire log (last 50, including those filtered out by ★ tier)">LOG</button>
+    <button class="btn on" id="btnAutoMarks" title="Toggle visibility of auto-generated reject / break annotations on the chart. Manual annotations (price lines, time markers, notes) are unaffected.">★ MARKS</button>
     <label class="auto-chirp" title="Play a brief tone when a setup fires"><input type="checkbox" id="chkChirp"> 🔊</label>
   </div>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
@@ -915,6 +916,9 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt><code>break 7270 ↑</code></dt>
       <dd>Spot crossed 7270 going up; expected continuation upward.</dd>
     </dl>
+
+    <h3>★ MARKS toggle (v0.8.8)</h3>
+    <p>Toggles visibility of auto-generated reject / break annotations on the chart. When OFF, the orange/blue setup dots and labels disappear, leaving only the spot trace, level lines, manual annotations, and toast/log. The fires themselves still happen (history is preserved, log still shows them, toast still pops, IDB still stores them) — just not rendered on the chart. Useful when reviewing structure or sharing screenshots without setup clutter. Persisted in localStorage; default ON.</p>
 
     <h3>Setup log (LOG button)</h3>
     <p>Opens a panel showing the last 50 setup fires in memory, including those filtered out by the current ★ tier (those rows are greyed). Each row: time, type, strike, arrow, spot at fire, velocity, hold-time, regime, Pulse magnitude. Click a row to scroll the chart to that snapshot. Auto-updates as new fires arrive while the panel is open.</p>
@@ -4265,14 +4269,25 @@ function annotPos(a, m, W, H) {
   return { x, y, vis };
 }
 
+// v0.8.8: per-class visibility toggles. Manual annotations always render
+// (they're explicitly user-placed). Auto annotations (★ MARKS — reject /
+// break) are gated by the AUTO ★ MARKS toolbar toggle so the user can
+// declutter the chart without losing the underlying setup-fire history.
+function autoMarksVisible() {
+  const btn = document.getElementById('btnAutoMarks');
+  return btn ? btn.classList.contains('on') : true;
+}
+
 function renderAnnotations() {
   if (!snapshots.length || !__annotations.length) return;
   const W  = heatCV.clientWidth;
   const H  = heatCV.clientHeight;
   const m  = renderMetrics();
+  const showAuto = autoMarksVisible();
   heatCX.save();
   heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
   for (const a of __annotations) {
+    if (a.auto && !showAuto) continue;
     const p = annotPos(a, m, W, H);
     if (!p.vis) continue;
     const color = a.color || (a.type === 'price' ? THEME.spot : a.type === 'time' ? '#ffd830' : '#ff8840');
@@ -4467,6 +4482,23 @@ document.getElementById('btnSetupLog').addEventListener('click', () => {
   const open = panel.classList.toggle('on');
   if (open) populateSetupLog();
 });
+
+// ★ MARKS toggle — show/hide auto-annotations on the chart (v0.8.8).
+// Persisted in localStorage; default ON. Manual annotations unaffected.
+(function () {
+  const KEY = 'gexbot.autoMarksVisible';
+  const btn = document.getElementById('btnAutoMarks');
+  if (!btn) return;
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved === '0') btn.classList.remove('on');
+  } catch (e) { /* private mode */ }
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('on');
+    try { localStorage.setItem(KEY, btn.classList.contains('on') ? '1' : '0'); } catch (e) {}
+    render();
+  });
+})();
 document.getElementById('btnSetupLogClose').addEventListener('click', () => {
   document.getElementById('setup-log').classList.remove('on');
 });

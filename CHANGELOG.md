@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.8] — `★ MARKS` toggle to hide auto-generated annotations
+
+New toggle button in the AUTO ★ toolbar group, labeled `★ MARKS`. When
+ON (default), reject / break auto-annotations render on the chart as
+before. When OFF, those annotations are hidden — the chart shows only
+the spot trace, level lines, manual annotations (price lines, time
+markers, notes), and the always-visible toast/log.
+
+The setup-fire history is unaffected — fires still happen, IDB still
+stores annotations, the toast still pops, the LOG panel still lists
+them. Only the chart-rendering of auto-marks is gated.
+
+Useful for: decluttering the chart when reviewing market structure,
+taking screenshots without setup clutter, or temporarily hiding stale
+auto-annotations while a session keeps running.
+
+State persists in `localStorage` under `gexbot.autoMarksVisible`.
+
 ## [0.8.7] — New `Loud` MaxCh family — magnitude-rank detector
 
 User-reported: scrolling through Pulse presets, none caught a notable
