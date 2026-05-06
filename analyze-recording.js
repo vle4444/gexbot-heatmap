@@ -454,6 +454,224 @@ function computeWallProximity(snaps, windowSec = 60) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SETUP COMPOSER (port of v0.8.0 LIVE_SIGNALS) — replays the buffer through
+// the level tracker + Pulse live state + setup composer to produce the same
+// rejection / breakout fires the dashboard would have generated, had AUTO ★
+// existed when the buffer was being recorded. Output: chronological array of
+// fires with type / strike / spot / regime / confidence / hold-time / vel.
+// ─────────────────────────────────────────────────────────────────────────────
+const SETUP_SENSITIVITY = {
+  high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 180 },
+  med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 240 },
+  low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 360 },
+};
+const SETUP_PULSE_CFG = { ema: 20, zFire: 2.0, zKeep: 0.7, hold: 5, minSigmaPct: 0.02, minSamples: 5 };
+
+function runSetupComposer(snaps, sensName) {
+  const sens = SETUP_SENSITIVITY[sensName] || SETUP_SENSITIVITY.med;
+  const cfg  = SETUP_PULSE_CFG;
+  const alpha = 2 / (cfg.ema + 1);
+
+  // Level tracker
+  const levelMap = new Map();
+  const levelGet = (strike) => {
+    let cs = levelMap.get(strike);
+    if (!cs) { cs = { strike, holdSnaps: 0, flowScore: 0, lastSeenCi: -1 }; levelMap.set(strike, cs); }
+    return cs;
+  };
+
+  // Pulse live state
+  const pulseTracker = new Map();
+  let pulseSessionMaxAbs = 0;
+
+  // Cooldown + output
+  const cooldown = new Map();
+  const fires = [];
+
+  for (let ci = 0; ci < snaps.length; ci++) {
+    const snap = snaps[ci];
+    const m = snap.meta;
+
+    // ── 1. Update level tracker (M+/M− + maxchange leadership) ──────────
+    if (typeof m.majPos === 'number' && m.majPos > 0) {
+      const cs = levelGet(m.majPos); cs.holdSnaps++; cs.lastSeenCi = ci;
+    }
+    if (typeof m.majNeg === 'number' && m.majNeg > 0) {
+      const cs = levelGet(m.majNeg); cs.holdSnaps++; cs.lastSeenCi = ci;
+    }
+    if (m.maxPriors) {
+      const counts = new Map();
+      for (let b = 0; b < 6; b++) {
+        const e = m.maxPriors[b];
+        if (!e) continue;
+        const k = parseFloat(e[0]);
+        if (!isFinite(k) || k <= 0) continue;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      for (const [k, c] of counts) {
+        const cs = levelGet(k); cs.flowScore += c / 6; cs.lastSeenCi = ci;
+      }
+    }
+
+    // ── 2. Update Pulse live state ───────────────────────────────────────
+    const fired = aggSnapBuckets(m.maxPriors);
+    if (m.maxPriors) {
+      for (let b = 0; b < 6; b++) {
+        const e = m.maxPriors[b];
+        if (!e) continue;
+        const a = Math.abs(parseFloat(e[1]));
+        if (a > pulseSessionMaxAbs) pulseSessionMaxAbs = a;
+      }
+    }
+    const sigmaFloor = Math.max(1e-9, pulseSessionMaxAbs * cfg.minSigmaPct);
+
+    for (const cs of pulseTracker.values()) {
+      const info = fired.get(cs.strike);
+      const mag = info ? info.absSum : 0;
+      const dir = info ? (info.dirSum >= 0 ? 1 : -1) : 0;
+      const sigma = Math.max(Math.sqrt(cs.s2), sigmaFloor);
+      cs.lastZ = (cs.n >= cfg.minSamples) ? (mag - cs.mu) / sigma : 0;
+      cs.lastM = mag; cs.lastDir = dir;
+      cs.zeroStreak = (mag === 0) ? cs.zeroStreak + 1 : 0;
+      const delta = mag - cs.mu;
+      cs.mu += alpha * delta;
+      cs.s2  = (1 - alpha) * (cs.s2 + alpha * delta * delta);
+      cs.n  += 1;
+    }
+    for (const [strike, info] of fired) {
+      if (!pulseTracker.has(strike)) {
+        pulseTracker.set(strike, {
+          strike,
+          mu: info.absSum * 0.5,
+          s2: Math.max(info.absSum * info.absSum * 0.25, sigmaFloor * sigmaFloor),
+          n: 1, state: 0, hold: 0, peakMag: 0,
+          lastFireCi: -1,
+          lastZ: 0, lastM: info.absSum,
+          lastDir: info.dirSum >= 0 ? 1 : -1,
+          zeroStreak: 0,
+        });
+      }
+    }
+    for (const cs of pulseTracker.values()) {
+      if (cs.state === 0) {
+        if (cs.lastZ >= cfg.zFire && cs.lastM > 0) {
+          cs.state = cs.lastDir || 1;
+          cs.hold  = cfg.hold;
+          cs.peakMag = cs.lastM;
+          cs.lastFireCi = ci;
+        }
+      } else {
+        if (cs.lastM > cs.peakMag) cs.peakMag = cs.lastM;
+        if (cs.lastZ >= cfg.zKeep && cs.lastM > 0) {
+          cs.hold = cfg.hold;
+          if (cs.lastDir !== 0) cs.state = cs.lastDir;
+        } else {
+          cs.hold -= 1;
+          if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+        }
+      }
+    }
+
+    // ── 3. Evaluate setups (warmup gate + sticky levels + regime) ────────
+    if (ci < 30) continue;
+    const sp = +m.spot;
+    if (!(sp > 0)) continue;
+
+    const minHold = 60;
+    const candidates = [];
+    for (const cs of levelMap.values()) {
+      if (cs.holdSnaps < minHold) continue;
+      cs.score = cs.holdSnaps + cs.flowScore * 0.5;
+      candidates.push(cs);
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    const levels = candidates.slice(0, 8);
+    if (!levels.length) continue;
+
+    // Regime
+    const zg = +m.zeroG;
+    let regime = 'unknown';
+    if (sp > 0 && isFinite(zg) && zg !== 0) {
+      const distPct = Math.abs(sp - zg) / sp;
+      if (distPct < 0.0005) regime = 'flip';
+      else regime = sp > zg ? 'long_g' : 'short_g';
+    }
+
+    // Spot velocity
+    const targetTs = snap.ts - sens.velWindowSec * 1000;
+    let bi = ci;
+    while (bi > 0 && snaps[bi - 1].ts >= targetTs) bi--;
+    const sp0 = snaps[bi].meta.spot;
+    const vel = (sp0 > 0) ? (sp - sp0) / sp0 * 100 : 0;
+
+    // Recent Pulse fires
+    const recent = [];
+    for (const cs of pulseTracker.values()) {
+      if (cs.lastFireCi < 0) continue;
+      if (ci - cs.lastFireCi <= sens.pulseWithinSec) {
+        recent.push({ strike: cs.strike, ci: cs.lastFireCi, dir: cs.lastDir, mag: cs.peakMag });
+      }
+    }
+
+    const prevSp = (ci > 0) ? snaps[ci - 1].meta.spot : sp;
+
+    for (const lv of levels) {
+      const wall = lv.strike;
+      const distPct = Math.abs(sp - wall) / sp;
+      const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
+
+      let nearPulse = null;
+      for (const f of recent) {
+        if (Math.abs(f.strike - wall) <= 5) {
+          if (!nearPulse || f.mag > nearPulse.mag) nearPulse = f;
+        }
+      }
+
+      // Rejection
+      if (distPct <= sens.nearPct &&
+          nearPulse &&
+          (regime === 'long_g' || regime === 'unknown' || regime === 'flip')) {
+        const approach = Math.sign(wall - sp) === Math.sign(vel);
+        if (approach || Math.abs(vel) < sens.velMinPct) {
+          const key = `rejection@${wall}`;
+          if (!cooldown.has(key) || ci > cooldown.get(key)) {
+            fires.push({
+              type: 'rejection', strike: wall, ci, ts: snap.ts,
+              spot: sp, confidence: stars, regime,
+              pulseDir: nearPulse.dir, pulseMag: nearPulse.mag, vel,
+              holdMin: lv.holdSnaps / 60,
+            });
+            cooldown.set(key, ci + sens.cooldownSec);
+          }
+        }
+      }
+
+      // Breakout
+      const crossed = Math.sign(prevSp - wall) !== Math.sign(sp - wall) &&
+                      prevSp !== wall && sp !== wall;
+      if (crossed && nearPulse) {
+        const breakDir = Math.sign(sp - wall);
+        const sustained = Math.sign(vel) === breakDir && Math.abs(vel) >= sens.velMinPct;
+        if (sustained && (regime === 'short_g' || regime === 'unknown' || regime === 'flip')) {
+          const key = `breakout@${wall}`;
+          if (!cooldown.has(key) || ci > cooldown.get(key)) {
+            fires.push({
+              type: 'breakout', strike: wall, ci, ts: snap.ts,
+              spot: sp, confidence: stars, regime,
+              dir: breakDir, pulseDir: nearPulse.dir, pulseMag: nearPulse.mag, vel,
+              holdMin: lv.holdSnaps / 60,
+            });
+            cooldown.set(key, ci + sens.cooldownSec);
+          }
+        }
+      }
+    }
+  }
+
+  return fires;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HARNESS — run all signals, find first-fire-in-window per event, aggregate.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildAllSignals(snaps) {
@@ -785,6 +1003,74 @@ function main() {
     for (const r of ranked) {
       lines.push(`| \`${r.name}\` | ${(r.baseRate * 100).toFixed(1)}% | ${(r.meanPreDens * 100).toFixed(0)}% | **${r.meanLift.toFixed(2)}** | ${r.tightHits}/${candidates.length} | ${r.hits}/${candidates.length} | ${r.mean.toFixed(0)} |`);
     }
+    lines.push('');
+  }
+
+  // ── Setup composer (v0.8.0 LIVE_SIGNALS replay) ───────────────────────
+  console.error('replaying buffer through setup composer (high / med / low)…');
+  const eventCis = args.events
+    ? JSON.parse(fs.readFileSync(args.events, 'utf8')).map(ev => {
+        const tz = ev.tz || '+02:00';
+        return { label: ev.label, ts: new Date(`${ev.tsLocal}${tz}`).getTime(), ci: findCi(new Date(`${ev.tsLocal}${tz}`).getTime()) };
+      })
+    : [];
+  const sweepEventCis = candidates.map(c => ({ label: `sweep@${(c.ret>=0?'+':'')}${c.ret.toFixed(2)}%`, ts: snaps[c.peakCi].ts, ci: c.peakCi }));
+
+  function leadToNext(fireCi, eventList) {
+    let best = null;
+    for (const ev of eventList) {
+      if (ev.ci > fireCi) {
+        const lead = (snaps[ev.ci].ts - snaps[fireCi].ts) / 1000;
+        if (!best || lead < best.lead) best = { lead, label: ev.label };
+      }
+    }
+    return best;
+  }
+
+  for (const sensName of ['high', 'med', 'low']) {
+    const fires = runSetupComposer(snaps, sensName);
+    lines.push(`## Setup composer fires — sensitivity: \`${sensName}\``);
+    lines.push('');
+    if (!fires.length) {
+      lines.push('_No setups fired at this sensitivity._');
+      lines.push('');
+      continue;
+    }
+    lines.push(`Replaying yesterday's buffer through the v0.8.0 LIVE_SIGNALS composer with sensitivity = \`${sensName}\`. **${fires.length}** setups fired.`);
+    lines.push('');
+    lines.push('| # | CEST | type | strike | ★ | spot | regime | dir | vel% | hold (min) | Pulse mag | next user event (s) | next sweep (s) |');
+    lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+    fires.forEach((f, i) => {
+      const cest = fmtCest(f.ts).slice(11, 19);
+      const stars = '★'.repeat(f.confidence) + '☆'.repeat(3 - f.confidence);
+      const dir = f.type === 'breakout' ? (f.dir > 0 ? '↑' : '↓') : (f.pulseDir > 0 ? '+' : '−');
+      const nextUser = leadToNext(f.ci, eventCis);
+      const nextSweep = leadToNext(f.ci, sweepEventCis);
+      const userStr = nextUser ? `**${Math.round(nextUser.lead)}** (${nextUser.label})` : '—';
+      const sweepStr = nextSweep ? `${Math.round(nextSweep.lead)} (${nextSweep.label})` : '—';
+      lines.push(`| ${i+1} | ${cest} | ${f.type} | ${f.strike} | ${stars} | ${f.spot.toFixed(2)} | ${f.regime} | ${dir} | ${(f.vel>=0?'+':'')}${f.vel.toFixed(3)} | ${f.holdMin.toFixed(0)} | ${f.pulseMag.toFixed(0)} | ${userStr} | ${sweepStr} |`);
+    });
+    lines.push('');
+
+    // Per-setup-type summary
+    const byType = { rejection: 0, breakout: 0 };
+    const byStrike = new Map();
+    let leadingUserCount = 0, leadingUserLeads = [];
+    for (const f of fires) {
+      byType[f.type]++;
+      byStrike.set(f.strike, (byStrike.get(f.strike) || 0) + 1);
+      const nu = leadToNext(f.ci, eventCis);
+      if (nu && nu.lead <= 600) {     // within 10 minutes of a known event
+        leadingUserCount++;
+        leadingUserLeads.push(nu.lead);
+      }
+    }
+    lines.push(`**Breakdown:** ${byType.rejection} rejection, ${byType.breakout} breakout. ` +
+               `${leadingUserCount}/${fires.length} fires had a user event within 10 min of firing. ` +
+               (leadingUserLeads.length ? `Median lead: ${leadingUserLeads.sort((a,b)=>a-b)[Math.floor(leadingUserLeads.length/2)]}s.` : ''));
+    lines.push('');
+    const strikeList = [...byStrike.entries()].sort((a, b) => b[1] - a[1]);
+    lines.push(`**Most-fired strikes:** ${strikeList.slice(0, 6).map(([k, n]) => `${k} (${n})`).join(', ')}`);
     lines.push('');
   }
 
