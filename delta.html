@@ -150,6 +150,33 @@ canvas#heat { display: block; width: 100%; height: 100%; cursor: crosshair; }
   box-shadow: 0 2px 12px rgba(0,0,0,0.4); font-variant-numeric: tabular-nums;
 }
 #tooltip.on { display: block; }
+
+/* ── Setup toast (top-right of chart) ─────────────────────────────── */
+#setup-toast {
+  position: absolute; top: 8px; right: 12px; z-index: 8;
+  display: none; flex-direction: column; gap: 4px;
+  pointer-events: auto; max-width: 320px;
+}
+#setup-toast.on { display: flex; }
+.toast-row {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 3px;
+  padding: 5px 9px; font-family: var(--font); font-size: 12px; line-height: 1.4;
+  display: flex; gap: 8px; align-items: baseline; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); white-space: nowrap;
+}
+.toast-row:hover { border-color: var(--accent); }
+.toast-row.toast-rejection { border-left: 3px solid var(--tag); }
+.toast-row.toast-breakout  { border-left: 3px solid var(--accent); }
+.toast-stars { color: var(--yellow); font-weight: 700; font-size: 11px; }
+.toast-type { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.toast-meta { color: var(--label); font-size: 11px; margin-left: auto; }
+
+/* ── Auto-labels toggle group ─────────────────────────────────────── */
+.auto-chirp {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 13px; color: var(--label); cursor: pointer; user-select: none;
+}
+.auto-chirp input { cursor: pointer; }
 #tooltip .tt-time { color: var(--label); font-family: var(--font); font-size: 11px; margin-bottom: 4px; }
 #tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; }
 #tooltip .tt-key { color: var(--label); font-family: var(--font); }
@@ -524,6 +551,15 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <button class="btn" id="btnAnnotClear" title="Delete all saved annotations for this ticker / expiry / overlay">⌫</button>
   </div>
   <button class="btn" id="btnReplay" title="Open the replay scrubber for the current buffer">REPLAY</button>
+  <div class="ctrl">
+    <button class="btn on" id="btnAutoLabels" title="Toggle live setup detection. When ON, persistent level lines (top sticky walls) render in the chart, and rejection / breakout setups auto-drop labeled annotations + flash a toast on each fire.">AUTO ★</button>
+    <select id="sAutoSens" title="Setup detection sensitivity. high = more setups, more noise. low = fewer setups, higher conviction.">
+      <option value="high">high</option>
+      <option value="med" selected>med</option>
+      <option value="low">low</option>
+    </select>
+    <label class="auto-chirp" title="Play a brief tone when a setup fires"><input type="checkbox" id="chkChirp"> 🔊</label>
+  </div>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
   <button class="btn" id="btnTheme" title="Toggle light / dark theme" style="margin-left:auto">DARK</button>
 </div>
@@ -547,6 +583,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <canvas id="heat"></canvas>
     <div id="crosshair"><div class="cx-v"></div><div class="cx-h"></div></div>
     <div id="tooltip"></div>
+    <div id="setup-toast" title="Recent setup fires. Click a row to scroll the chart to that snapshot."></div>
     <div id="loading"><div class="ring"></div>CONNECTING…</div>
     <div id="err">
       <div class="etitle">⚠ API ERROR</div>
@@ -781,6 +818,32 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>ZG (yellow dashed)</dt><dd>Zero-gamma line. Only populated in <b>GEX</b> overlay mode (Greek overlays do not return zero_gamma).</dd>
     </dl>
     <p>Each is drawn as a horizontal trace across the visible columns. When the level jumps between strikes mid-session, the run at the old level ends and a new one starts at the new level — there's no vertical connector drawn through the intermediate prices.</p>
+
+    <h2>AUTO ★ — live setup detector</h2>
+    <p>The <b>AUTO ★</b> button in the toolbar enables a real-time level detector + setup composer. When ON, three things happen:</p>
+    <dl>
+      <dt>Persistent level lines</dt>
+      <dd>Top-N "sticky" strikes (those that have been M+ or M− for a long time during the session) render as faint dashed horizontal lines across the chart with a left-edge badge: <code>★★ 7270 · 18m</code>. ★ counts hold-time tiers (★ ≥ 5m, ★★ ≥ 15m, ★★★ ≥ 30m). Stale levels (no recent touch) dim further.</dd>
+      <dt>Auto-annotations</dt>
+      <dd>When a setup fires, a labeled point annotation is auto-dropped at the trigger snapshot. Auto-annotations have a soft halo to distinguish them from manual notes. They persist in IDB and survive reloads. Right-click to delete one; ⌫ clears all (auto + manual) for the current key.</dd>
+      <dt>Toast notifications</dt>
+      <dd>A floating panel in the top-right of the chart shows the last few setups with timestamp, spot, hold-time, and confidence stars. Click a row to scroll the chart to that snapshot.</dd>
+    </dl>
+    <h3>Two setup types</h3>
+    <dl>
+      <dt>Rejection</dt>
+      <dd>Spot is approaching a sticky wall (within ~0.06% by default), Pulse fired near the wall in the last 45s, and the regime is <b>Long γ</b> (or transitional). Expectation: dealers fade the move → bounce/reject at the wall. Default color: orange.</dd>
+      <dt>Breakout</dt>
+      <dd>Spot just <i>crossed</i> a sticky wall, velocity is sustained in the breakout direction, Pulse fired near the wall, and the regime is <b>Short γ</b> (or transitional). Expectation: dealers chase → continuation through the level. Default color: blue.</dd>
+    </dl>
+    <p><b>Cooldown</b>: per (type, strike) the same setup can't refire for 3-6 minutes (sensitivity-dependent). Prevents the same wall test from spamming the toast on every snapshot.</p>
+    <h3>Sensitivity</h3>
+    <dl>
+      <dt>high</dt><dd>Wide near-wall band (±0.10%), 60s pulse-recency window, lenient velocity threshold. More setups, more noise.</dd>
+      <dt>med <span style="color:#9aa">— default</span></dt><dd>±0.06% near-wall, 45s pulse window. Balanced.</dd>
+      <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor. Fewer setups, higher conviction.</dd>
+    </dl>
+    <p><b>Audio chirp</b> (🔊 checkbox): brief WebAudio tone on each fire (660 Hz rejection / 880 Hz breakout). Off by default. Some browsers block audio until the user interacts with the page.</p>
 
     <h2>MaxCh overlay</h2>
     <p>The <b>MaxCh</b> selector overlays strikes absorbing GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets (current/1m/5m/10m/15m/30m) each pick a winning strike every second, with adjacent strikes randomly trading places. Three filter families are available, each tuned for a different question.</p>
@@ -1169,6 +1232,17 @@ function ingest(data, greek, mcData) {
     if (scrollOffset > 0) scrollOffset = Math.max(0, scrollOffset - 1);
   }
   if (followLive) scrollOffset = 0;
+
+  // Live signal intelligence — runs on every new snap. May produce setup
+  // fires which trigger auto-annotations + toast notifications via
+  // onSetupFire(). Silent during initial buffer rebuilds (CLEAR / LOAD).
+  if (typeof LIVE_SIGNALS !== 'undefined') {
+    const ci = snapshots.length - 1;
+    const fires = LIVE_SIGNALS.ingest(ci, snap, snapshots);
+    if (fires && fires.length) {
+      for (const f of fires) onSetupFire(f);
+    }
+  }
 
   // Fire-and-forget IDB auto-save. Errors are swallowed (logged once at
   // most via console.warn) to never block the live render path.
@@ -2878,6 +2952,518 @@ function renderProfile() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+//  LIVE SIGNAL INTELLIGENCE (v0.8.0)
+// ═══════════════════════════════════════════════════════
+// Real-time level detector + setup composer. Three components:
+//
+//   1. levelTracker — per-strike "stickiness" score:
+//        holdSnaps   = total snaps where strike was M+ or M−
+//        flowScore   = fractional credit for /maxchange leadership
+//        lastSeenCi  = decay anchor for "still active" indicator
+//      Top-N strikes by score render as persistent dashed level lines
+//      with right-edge labels (e.g. `7270  18m  ★★`).
+//
+//   2. pulseLive — per-strike Welford EMA + state machine identical to
+//      the v0.7.2 Pulse `pulse_normal` preset, but maintained as live
+//      state across ingests (not recomputed per render frame). Exposes
+//      `recentFires(currentCi, withinSnaps)` for the setup composer.
+//
+//   3. setupComposer — combines levelTracker, pulseLive, regime
+//      classifier, spot velocity, and spot-vs-wall position to fire two
+//      kinds of setups:
+//        rejection — long-γ regime, spot approached strong wall, Pulse
+//                    fired near wall; expect mean-reverting bounce/reject.
+//        breakout  — short-γ regime, spot just CROSSED strong wall in
+//                    direction of momentum, Pulse fired near wall;
+//                    expect trend continuation through the level.
+//      Per-(type,strike) cooldown prevents repeat fires.
+//
+// Hooks: ingest() calls LIVE_SIGNALS.ingest() on every new snapshot.
+//        Clear/Restore/Load reset and rebuild from the buffer.
+// Output: setups → optional auto-annotations + toast notifications.
+const LIVE_SIGNALS = (function () {
+  // Tunable thresholds (sensitivity = "med" by default; UI dropdown swaps).
+  const SENSITIVITY = {
+    high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 180 },
+    med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 240 },
+    low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 360 },
+  };
+  let sens = SENSITIVITY.med;
+
+  // ── Level tracker ────────────────────────────────────────────────────
+  // Map: strike → { strike, holdSnaps, flowScore, lastSeenCi, firstSeenCi }
+  let levelMap = new Map();
+  function levelGet(strike) {
+    let cs = levelMap.get(strike);
+    if (!cs) {
+      cs = { strike, holdSnaps: 0, flowScore: 0, lastSeenCi: -1, firstSeenCi: -1 };
+      levelMap.set(strike, cs);
+    }
+    return cs;
+  }
+  function updateLevels(ci, snap) {
+    const m = snap.meta;
+    let touched = false;
+    if (typeof m.majPos === 'number' && m.majPos > 0) {
+      const cs = levelGet(m.majPos);
+      cs.holdSnaps++; cs.lastSeenCi = ci;
+      if (cs.firstSeenCi < 0) cs.firstSeenCi = ci;
+      touched = true;
+    }
+    if (typeof m.majNeg === 'number' && m.majNeg > 0) {
+      const cs = levelGet(m.majNeg);
+      cs.holdSnaps++; cs.lastSeenCi = ci;
+      if (cs.firstSeenCi < 0) cs.firstSeenCi = ci;
+      touched = true;
+    }
+    if (m.maxPriors) {
+      // Fractional credit per /maxchange bucket (6 buckets total → 1.0 if all
+      // name the same strike, lower otherwise). Decays naturally as new
+      // strikes claim buckets.
+      const counts = new Map();
+      for (let b = 0; b < 6; b++) {
+        const e = m.maxPriors[b];
+        if (!e) continue;
+        const k = parseFloat(e[0]);
+        if (!isFinite(k) || k <= 0) continue;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      for (const [k, c] of counts) {
+        const cs = levelGet(k);
+        cs.flowScore += c / 6;
+        cs.lastSeenCi = ci;
+        if (cs.firstSeenCi < 0) cs.firstSeenCi = ci;
+      }
+    }
+    return touched;
+  }
+  function topLevels(N, currentCi, minHoldSnaps) {
+    const minHold = minHoldSnaps || 60;   // 1 minute default
+    const out = [];
+    for (const cs of levelMap.values()) {
+      if (cs.holdSnaps < minHold) continue;
+      // Combined score: hold dominates, flow adds tie-break weight
+      cs.score = cs.holdSnaps + cs.flowScore * 0.5;
+      cs.staleSnaps = currentCi - cs.lastSeenCi;
+      out.push(cs);
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, N);
+  }
+
+  // ── Live Pulse state (replicates v0.7.2 pulse_normal) ────────────────
+  const PULSE_CFG = { ema: 20, zFire: 2.0, zKeep: 0.7, hold: 5, minSigmaPct: 0.02, minSamples: 5 };
+  const PULSE_ALPHA = 2 / (PULSE_CFG.ema + 1);
+  let pulseTracker = new Map();    // strike → { mu, s2, n, state, hold, lastFireCi, lastDir, lastM, peakMag, zeroStreak }
+  let pulseSessionMaxAbs = 0;
+  function updatePulse(ci, snap) {
+    // Aggregate buckets (mirrors aggSnapBuckets but simpler — we only need
+    // per-strike absSum and dirSum)
+    const fired = new Map();
+    const mp = snap.meta.maxPriors;
+    if (mp) {
+      for (let b = 0; b < 6; b++) {
+        const e = mp[b];
+        if (!e) continue;
+        const strike = parseFloat(e[0]);
+        const raw    = parseFloat(e[1]);
+        if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
+        const a = Math.abs(raw);
+        if (a > pulseSessionMaxAbs) pulseSessionMaxAbs = a;
+        const dir = -raw;
+        let cur = fired.get(strike);
+        if (!cur) { cur = { absSum: 0, dirSum: 0 }; fired.set(strike, cur); }
+        cur.absSum += Math.abs(dir);
+        cur.dirSum += dir;
+      }
+    }
+    const sigmaFloor = Math.max(1e-9, pulseSessionMaxAbs * PULSE_CFG.minSigmaPct);
+    // Update tracked strikes (with m=0 for absent ones)
+    for (const cs of pulseTracker.values()) {
+      const info = fired.get(cs.strike);
+      const m = info ? info.absSum : 0;
+      const dir = info ? (info.dirSum >= 0 ? 1 : -1) : 0;
+      const sigma = Math.max(Math.sqrt(cs.s2), sigmaFloor);
+      const z = (cs.n >= PULSE_CFG.minSamples) ? (m - cs.mu) / sigma : 0;
+      cs.lastZ = z; cs.lastM = m;
+      cs.lastDir = dir;
+      cs.zeroStreak = (m === 0) ? cs.zeroStreak + 1 : 0;
+      const delta = m - cs.mu;
+      cs.mu += PULSE_ALPHA * delta;
+      cs.s2  = (1 - PULSE_ALPHA) * (cs.s2 + PULSE_ALPHA * delta * delta);
+      cs.n  += 1;
+    }
+    // First appearances
+    for (const [strike, info] of fired) {
+      if (!pulseTracker.has(strike)) {
+        pulseTracker.set(strike, {
+          strike,
+          mu: info.absSum * 0.5,
+          s2: Math.max(info.absSum * info.absSum * 0.25, sigmaFloor * sigmaFloor),
+          n: 1, state: 0, hold: 0, peakMag: 0,
+          lastFireCi: -1,
+          lastZ: 0, lastM: info.absSum,
+          lastDir: info.dirSum >= 0 ? 1 : -1,
+          zeroStreak: 0,
+        });
+      }
+    }
+    // State machine + record fires
+    for (const cs of pulseTracker.values()) {
+      if (cs.state === 0) {
+        if (cs.lastZ >= PULSE_CFG.zFire && cs.lastM > 0) {
+          cs.state   = cs.lastDir || 1;
+          cs.hold    = PULSE_CFG.hold;
+          cs.peakMag = cs.lastM;
+          cs.lastFireCi = ci;
+        }
+      } else {
+        if (cs.lastM > cs.peakMag) cs.peakMag = cs.lastM;
+        if (cs.lastZ >= PULSE_CFG.zKeep && cs.lastM > 0) {
+          cs.hold = PULSE_CFG.hold;
+          if (cs.lastDir !== 0) cs.state = cs.lastDir;
+        } else {
+          cs.hold -= 1;
+          if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+        }
+      }
+    }
+    // Cleanup
+    const drainAge = PULSE_CFG.ema * 5;
+    for (const [strike, cs] of pulseTracker) {
+      if (cs.state === 0 && cs.zeroStreak > drainAge && cs.mu < sigmaFloor) {
+        pulseTracker.delete(strike);
+      }
+    }
+  }
+  function recentPulseFires(currentCi, withinSnaps) {
+    const out = [];
+    for (const cs of pulseTracker.values()) {
+      if (cs.lastFireCi < 0) continue;
+      if (currentCi - cs.lastFireCi <= withinSnaps) {
+        out.push({ strike: cs.strike, ci: cs.lastFireCi, dir: cs.lastDir, mag: cs.peakMag });
+      }
+    }
+    return out;
+  }
+
+  // ── Setup composer ───────────────────────────────────────────────────
+  // Cooldown: setupKey ("rejection@7270") → ci until which suppressed.
+  let cooldown = new Map();
+  // History of fired setups for the toast UI.
+  let setupHistory = [];
+
+  function classifyRegime(snap) {
+    const sp = +snap.meta.spot;
+    const zg = +snap.meta.zeroG;
+    if (!(sp > 0) || !isFinite(zg) || zg === 0) return 'unknown';
+    const distPct = Math.abs(sp - zg) / sp;
+    if (distPct < 0.0005) return 'flip';
+    return sp > zg ? 'long_g' : 'short_g';
+  }
+
+  function spotVelocityPct(snaps, ci, windowSec) {
+    if (ci < 1) return 0;
+    const cur = snaps[ci];
+    const targetTs = cur.ts - windowSec * 1000;
+    let bi = ci;
+    while (bi > 0 && snaps[bi - 1].ts >= targetTs) bi--;
+    const sp0 = snaps[bi].meta.spot;
+    const sp1 = cur.meta.spot;
+    if (!(sp0 > 0) || !(sp1 > 0)) return 0;
+    return (sp1 - sp0) / sp0 * 100;
+  }
+
+  function evaluateSetups(ci, snap, snaps) {
+    const fires = [];
+    const sp = +snap.meta.spot;
+    if (!(sp > 0) || ci < 30) return fires;     // need warmup
+
+    // Top sticky levels — the candidates we test against
+    const levels = topLevels(8, ci, 60);
+    if (!levels.length) return fires;
+
+    const regime = classifyRegime(snap);
+    const vel = spotVelocityPct(snaps, ci, sens.velWindowSec);
+    const fires_within = sens.pulseWithinSec;
+    const recent = recentPulseFires(ci, fires_within);
+    const recentByStrike = new Map();
+    for (const f of recent) recentByStrike.set(f.strike, f);
+
+    // Previous spot (1 snap back) for crossing detection
+    const prevSp = (ci > 0) ? snaps[ci - 1].meta.spot : sp;
+
+    for (const lv of levels) {
+      const wall = lv.strike;
+      const distPct = Math.abs(sp - wall) / sp;
+      const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
+
+      // Is there a recent Pulse fire at or adjacent to this wall (±5 pts)?
+      let nearPulse = null;
+      for (const f of recent) {
+        if (Math.abs(f.strike - wall) <= 5) {
+          if (!nearPulse || f.mag > nearPulse.mag) nearPulse = f;
+        }
+      }
+
+      // ─ Rejection setup ───────────────────────────────────────────────
+      // Conditions:
+      //   1. spot is within nearPct of wall
+      //   2. spot velocity is approaching the wall (sign matches direction)
+      //   3. recent Pulse fire near wall
+      //   4. regime is long-γ or unknown (gamma overlay can give 'unknown')
+      if (distPct <= sens.nearPct &&
+          nearPulse &&
+          (regime === 'long_g' || regime === 'unknown' || regime === 'flip')) {
+        const approach = Math.sign(wall - sp) === Math.sign(vel);
+        if (approach || Math.abs(vel) < sens.velMinPct) {
+          const key = `rejection@${wall}`;
+          if (!cooldown.has(key) || ci > cooldown.get(key)) {
+            fires.push({
+              type: 'rejection',
+              strike: wall,
+              ci, ts: snap.ts,
+              spot: sp,
+              confidence: stars,
+              regime,
+              pulseDir: nearPulse.dir,
+              pulseMag: nearPulse.mag,
+              vel,
+              holdMin: lv.holdSnaps / 60,
+            });
+            cooldown.set(key, ci + sens.cooldownSec);
+          }
+        }
+      }
+
+      // ─ Breakout setup ────────────────────────────────────────────────
+      // Conditions:
+      //   1. spot just crossed the wall (sign change of (sp-wall) vs prev)
+      //   2. spot velocity sustained in breakout direction
+      //   3. recent Pulse fire near wall
+      //   4. regime is short-γ OR unknown (less restrictive)
+      const crossed = Math.sign(prevSp - wall) !== Math.sign(sp - wall) &&
+                      prevSp !== wall && sp !== wall;
+      if (crossed && nearPulse) {
+        const breakDir = Math.sign(sp - wall);
+        const sustained = Math.sign(vel) === breakDir && Math.abs(vel) >= sens.velMinPct;
+        if (sustained && (regime === 'short_g' || regime === 'unknown' || regime === 'flip')) {
+          const key = `breakout@${wall}`;
+          if (!cooldown.has(key) || ci > cooldown.get(key)) {
+            fires.push({
+              type: 'breakout',
+              strike: wall,
+              ci, ts: snap.ts,
+              spot: sp,
+              confidence: stars,
+              regime,
+              dir: breakDir,
+              pulseDir: nearPulse.dir,
+              pulseMag: nearPulse.mag,
+              vel,
+              holdMin: lv.holdSnaps / 60,
+            });
+            cooldown.set(key, ci + sens.cooldownSec);
+          }
+        }
+      }
+    }
+    return fires;
+  }
+
+  // ── Public surface ───────────────────────────────────────────────────
+  function reset() {
+    levelMap = new Map();
+    pulseTracker = new Map();
+    pulseSessionMaxAbs = 0;
+    cooldown = new Map();
+    setupHistory.length = 0;
+  }
+  function ingest(ci, snap, snaps, opts) {
+    updateLevels(ci, snap);
+    updatePulse(ci, snap);
+    if (opts && opts.silent) return [];
+    const fires = evaluateSetups(ci, snap, snaps);
+    for (const f of fires) {
+      setupHistory.push(f);
+      if (setupHistory.length > 50) setupHistory.shift();
+    }
+    return fires;
+  }
+  function rebuild(snaps) {
+    reset();
+    for (let i = 0; i < snaps.length; i++) {
+      ingest(i, snaps[i], snaps, { silent: true });
+    }
+    // Replay the last few snaps as non-silent so the toast UI shows recent
+    // setups that fired during rebuild (e.g., after RESTORE).
+  }
+  function setSensitivity(name) {
+    if (SENSITIVITY[name]) sens = SENSITIVITY[name];
+  }
+
+  return {
+    ingest, rebuild, reset, setSensitivity,
+    topLevels, recentPulseFires,
+    getSetupHistory: () => setupHistory.slice(),
+    getLastSetups: (n) => setupHistory.slice(-n),
+  };
+})();
+
+// ── Live setup fire handler ────────────────────────────────────────────
+// Called from ingest() when LIVE_SIGNALS produces a new setup fire. Drops
+// an auto-annotation (visible across reloads), pushes a toast item, and
+// optionally chirps via WebAudio.
+let __toastQueue = [];          // {setup, expiresAt}
+const TOAST_TTL_MS = 12000;     // toast visible for 12s after fire
+let __audioCtx = null;          // lazy WebAudio context
+
+function autoLabelsEnabled() {
+  return document.getElementById('btnAutoLabels')?.classList.contains('on');
+}
+function autoChirpEnabled() {
+  return document.getElementById('chkChirp')?.checked;
+}
+
+function chirp(setup) {
+  if (!autoChirpEnabled()) return;
+  try {
+    if (!__audioCtx) __audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = __audioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    // Different pitch per setup type
+    const freq = setup.type === 'rejection' ? 660 : 880;
+    o.frequency.value = freq;
+    o.type = 'sine';
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.30);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.32);
+  } catch (e) { /* WebAudio unsupported or blocked — silent */ }
+}
+
+async function onSetupFire(setup) {
+  if (!autoLabelsEnabled()) return;
+  // Push to toast queue
+  __toastQueue.push({ setup, expiresAt: Date.now() + TOAST_TTL_MS });
+  if (__toastQueue.length > 5) __toastQueue.shift();
+  // Chirp
+  chirp(setup);
+  // Auto-annotation (uses existing annotation IDB store with auto: true)
+  const stars = '★'.repeat(setup.confidence) + '☆'.repeat(3 - setup.confidence);
+  const label = setup.type === 'rejection'
+    ? `${stars} reject ${setup.strike} (${setup.holdMin.toFixed(0)}m)`
+    : `${stars} break ${setup.strike} ${setup.dir > 0 ? '↑' : '↓'} (${setup.holdMin.toFixed(0)}m)`;
+  const [tk, ex, gk] = annotKey();
+  const a = {
+    ticker: tk, expiry: ex, greek: gk,
+    type: 'note',
+    price: setup.strike,
+    ts: setup.ts,
+    label,
+    color: setup.type === 'rejection' ? '#ff8840' : '#a0d8ff',
+    auto: true,
+    setupType: setup.type,
+    confidence: setup.confidence,
+    createdAt: Date.now(),
+  };
+  try {
+    a.id = await idbAddAnnotation(a);
+    __annotations.push(a);
+    render();
+  } catch (e) { /* silent */ }
+}
+
+// ── Render: persistent level lines ────────────────────────────────────
+// Top-N "sticky" strikes by holdSnaps render as faint dashed horizontal
+// lines across the chart with right-edge labels. Stale levels (no recent
+// touch) dim further.
+function renderLevelLines() {
+  if (!autoLabelsEnabled()) return;
+  if (!snapshots.length) return;
+  const W = heatCV.clientWidth, H = heatCV.clientHeight;
+  const m = renderMetrics();
+  const drawH = H - TAX;
+  const ci = snapshots.length - 1;
+  const levels = LIVE_SIGNALS.topLevels(8, ci, 60);
+  if (!levels.length) return;
+  const sp = snapshots[ci].meta.spot || 0;
+
+  heatCX.save();
+  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const lv of levels) {
+    const yv = yValue(lv.strike, sp);
+    if (yv < yDomain.min || yv > yDomain.max) continue;
+    const y = yToPx(yv, H);
+    if (y < 4 || y > drawH - 4) continue;
+
+    const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
+    const stale = lv.staleSnaps > 300;     // 5 min decay
+    const baseColor = stars === 3 ? '#ff8840'
+                    : stars === 2 ? '#ffd830'
+                    : '#a0d8ff';
+    const alpha = stale ? 0.25 : 0.55;
+
+    heatCX.strokeStyle = baseColor;
+    heatCX.globalAlpha = alpha;
+    heatCX.lineWidth = stars === 3 ? 1.5 : 1;
+    heatCX.setLineDash(stars === 3 ? [6, 4] : stars === 2 ? [4, 3] : [2, 4]);
+    heatCX.beginPath(); heatCX.moveTo(m.effPAX, y); heatCX.lineTo(W - LGAP - 2, y); heatCX.stroke();
+    heatCX.setLineDash([]);
+
+    // Left-edge label: `★★ 7270 · 18m`. Left edge avoids collision with the
+    // existing M+ / M− / ZG traces which label at the right edge.
+    heatCX.globalAlpha = stale ? 0.55 : 1.0;
+    heatCX.fillStyle = baseColor;
+    heatCX.font = `600 11px ${F_UI}`;
+    heatCX.textAlign = 'left';
+    const minutes = Math.round(lv.holdSnaps / 60);
+    const starStr = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+    heatCX.fillText(`${starStr} ${lv.strike} · ${minutes}m`, m.effPAX + 4, y - 3);
+  }
+  heatCX.restore();
+}
+
+// ── Render: setup toast (top-right corner of chart) ────────────────────
+function renderToast() {
+  // Drop expired entries
+  const now = Date.now();
+  __toastQueue = __toastQueue.filter(t => t.expiresAt > now);
+  // Style and position the floating toast container in DOM (cheap)
+  const cont = document.getElementById('setup-toast');
+  if (!cont) return;
+  if (!__toastQueue.length) {
+    cont.classList.remove('on');
+    cont.innerHTML = '';
+    return;
+  }
+  cont.classList.add('on');
+  cont.innerHTML = '';
+  for (const item of __toastQueue.slice().reverse()) {
+    const s = item.setup;
+    const div = document.createElement('div');
+    div.className = `toast-row toast-${s.type}`;
+    const ageMs = now - (s.ts || now);
+    const age = ageMs < 60000 ? `${Math.round(ageMs / 1000)}s` : `${Math.round(ageMs / 60000)}m`;
+    const stars = '★'.repeat(s.confidence) + '☆'.repeat(3 - s.confidence);
+    const dir = s.type === 'breakout' ? (s.dir > 0 ? '↑ break' : '↓ break') : 'reject';
+    div.innerHTML =
+      `<span class="toast-stars">${stars}</span>` +
+      `<span class="toast-type">${dir} ${s.strike}</span>` +
+      `<span class="toast-meta">spot ${s.spot.toFixed(2)} · ${age} ago · ${s.holdMin.toFixed(0)}m hold</span>`;
+    // Click toast row → scroll the chart to the setup snapshot
+    div.addEventListener('click', () => {
+      scrollOffset = Math.max(0, snapshots.length - 1 - s.ci);
+      followLive = (scrollOffset === 0);
+      render();
+    });
+    cont.appendChild(div);
+  }
+}
+
 // Synchronous renderer — used directly by the rAF wrapper, by hot-paths that
 // need to read post-render state immediately, and as a fallback if rAF is
 // unavailable (none of our targets, but cheap insurance).
@@ -2886,7 +3472,9 @@ function _renderNow() {
   renderHeat();
   renderProfile();
   if (typeof renderAnnotations === 'function') renderAnnotations();
-  if (typeof renderReplayBar  === 'function') renderReplayBar();
+  if (typeof renderLevelLines  === 'function') renderLevelLines();
+  if (typeof renderReplayBar   === 'function') renderReplayBar();
+  if (typeof renderToast       === 'function') renderToast();
 }
 // Public render() — coalesced via requestAnimationFrame. Many callsites
 // (mousemove drag, wheel zoom, fetch ingest, control changes) call this at
@@ -3172,6 +3760,8 @@ document.getElementById('btnClear').addEventListener('click', () => {
   snapshots = []; yDomain = { min: 0, max: 0 };
   zoomLock = false; colWOverride = null;
   scrollOffset = 0; followLive = true;
+  if (typeof LIVE_SIGNALS !== 'undefined') LIVE_SIGNALS.reset();
+  __toastQueue = [];
   resize();
   refreshTheme();
   heatCX.setTransform(1, 0, 0, 1, 0, 0);
@@ -3245,6 +3835,7 @@ document.getElementById('btnRestore').addEventListener('click', async () => {
   scrollOffset = 0;
   followLive   = true;
   for (const s of snapshots) refreshYDomain(s);
+  if (typeof LIVE_SIGNALS !== 'undefined') LIVE_SIGNALS.rebuild(snapshots);
 
   if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
   document.getElementById('v-sn').textContent = snapshots.length;
@@ -3288,6 +3879,7 @@ document.getElementById('btnLoad').addEventListener('click', () => {
       scrollOffset = 0;
       followLive   = true;
       for (const s of snapshots) refreshYDomain(s);
+      if (typeof LIVE_SIGNALS !== 'undefined') LIVE_SIGNALS.rebuild(snapshots);
 
       if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
       document.getElementById('v-sn').textContent = snapshots.length;
@@ -3419,8 +4011,16 @@ function renderAnnotations() {
       const lbl = a.label || tsFormatter('hm').format(new Date(a.ts));
       heatCX.fillText(lbl, p.x, 12);
     } else if (a.type === 'note') {
+      // Auto-annotations get a faint halo + larger dot to distinguish them
+      // from manual notes.
+      if (a.auto) {
+        heatCX.beginPath(); heatCX.arc(p.x, p.y, 7, 0, Math.PI * 2);
+        heatCX.fillStyle = color; heatCX.globalAlpha = 0.25; heatCX.fill();
+        heatCX.globalAlpha = 1.0;
+      }
       heatCX.fillStyle = color; heatCX.strokeStyle = THEME.bg; heatCX.lineWidth = 1.5;
-      heatCX.beginPath(); heatCX.arc(p.x, p.y, 4, 0, Math.PI * 2); heatCX.fill(); heatCX.stroke();
+      heatCX.beginPath(); heatCX.arc(p.x, p.y, a.auto ? 5 : 4, 0, Math.PI * 2);
+      heatCX.fill(); heatCX.stroke();
       heatCX.fillStyle = color; heatCX.font = `600 11px ${F_UI}`; heatCX.textAlign = 'left';
       const lbl = a.label || ((+a.price).toFixed(2));
       heatCX.fillText(lbl, p.x + 7, p.y - 4);
@@ -3501,6 +4101,21 @@ document.getElementById('btnAnnotClear').addEventListener('click', async () => {
 // Initial load + reload when (ticker, expiry, greek) changes.
 reloadAnnotations();
 
+// ── Auto-labels toggle + sensitivity ──────────────────────────────────
+document.getElementById('btnAutoLabels').addEventListener('click', () => {
+  const btn = document.getElementById('btnAutoLabels');
+  btn.classList.toggle('on');
+  if (!btn.classList.contains('on')) {
+    __toastQueue = [];
+  }
+  render();
+});
+document.getElementById('sAutoSens').addEventListener('change', (e) => {
+  if (typeof LIVE_SIGNALS !== 'undefined') {
+    LIVE_SIGNALS.setSensitivity(e.target.value);
+  }
+});
+
 // ═══════════════════════════════════════════════════════
 //  HELP OVERLAY
 // ═══════════════════════════════════════════════════════
@@ -3523,6 +4138,8 @@ reloadAnnotations();
     if (['sTicker','sExpiry','sGreek'].includes(id)) {
       snapshots = []; yDomain = { min: 0, max: 0 };
       zoomLock = false; colWOverride = null; scrollOffset = 0; followLive = true;
+      if (typeof LIVE_SIGNALS !== 'undefined') LIVE_SIGNALS.reset();
+      __toastQueue = [];
       // The RESTORE button reflects the current ticker/expiry/greek tuple,
       // so re-query its count whenever any of those change.
       refreshRestoreButton();

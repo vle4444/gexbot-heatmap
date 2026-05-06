@@ -1,5 +1,84 @@
 # Changelog
 
+## [0.8.0] — Live setup detector: AUTO ★, level lines, rejection / breakout
+
+The first iteration of the **level detector + setup composer** designed
+on the back of yesterday's signal-vs-event analysis (`analysis-2026-05-05.md`).
+That study showed the existing per-snapshot signals (Pulse, CUSUM,
+burst/swarm/pump) are good at saying "*something* is happening
+*somewhere*" but don't know **which level matters** — and 4 of 5 user
+events were rejections at specific price levels (7255, 7270×3). This
+release adds level-awareness on top of the existing Pulse machinery.
+
+### New: `LIVE_SIGNALS` module
+
+A live, stateful signal-intelligence layer that ingests on every new
+snapshot (not per render frame). Three components:
+
+- **Level tracker** — per-strike `holdSnaps` (count of snaps where
+  strike was M+ or M−) + `flowScore` (fractional credit for /maxchange
+  leadership). Top-N strikes by combined score are the session's
+  "sticky walls."
+- **Pulse live state** — replicates the v0.7.2 `pulse_normal` preset
+  (Welford EMA + z-score per strike) but maintained as live state
+  across ingests, exposing `recentPulseFires(ci, withinSnaps)`.
+- **Setup composer** — combines the above with the regime classifier,
+  spot velocity, and spot-vs-wall position to fire two setup types
+  with per-(type, strike) cooldown.
+
+### New: setup types
+
+- **Rejection** — spot approaches a sticky wall (within ±0.04-0.10%
+  depending on sensitivity), Pulse fired at or adjacent to the wall in
+  the last 30-60s, regime is Long γ (or transitional). Expectation:
+  dealers fade → bounce/reject. Color: orange.
+- **Breakout** — spot just *crossed* a sticky wall in the direction of
+  sustained velocity, Pulse fired near the wall, regime is Short γ (or
+  transitional). Expectation: dealers chase → continuation. Color: blue.
+
+### New: `AUTO ★` toolbar group
+
+- **AUTO ★ button** (default ON) — toggles live setup detection.
+- **Sensitivity dropdown** (high / med / low) — high = wider near-wall
+  band, longer Pulse window, lower velocity floor (more setups, more
+  noise). Low = tighter (fewer setups, higher conviction).
+- **🔊 checkbox** — WebAudio chirp on fire (660 Hz rejection / 880 Hz
+  breakout). Off by default.
+
+### New: visual additions
+
+- **Persistent level lines** — top-N sticky strikes render as faint
+  dashed horizontal lines across the chart with left-edge labels:
+  `★★ 7270 · 18m`. ★ tier scales with hold-time (★ ≥ 5m, ★★ ≥ 15m,
+  ★★★ ≥ 30m). Stale levels dim. Left-edge avoids collision with the
+  existing M+/M−/ZG right-edge labels.
+- **Setup toast** — top-right floating panel shows the last 3-5
+  setups (12s TTL each). Click any row to scroll the chart to that
+  snapshot.
+- **Auto-annotations** — setup fires drop a labeled annotation at the
+  trigger snapshot. Auto-annotations have a soft halo + larger dot to
+  distinguish from manual notes. Persist in IDB across reloads
+  (reuses the v0.7.0 annotation store, additive `auto: true` field).
+
+### Lifecycle hooks
+
+- `ingest()` calls `LIVE_SIGNALS.ingest()` on every new snapshot.
+- CLEAR / ticker-greek-expiry change → `LIVE_SIGNALS.reset()`.
+- LOAD / RESTORE → `LIVE_SIGNALS.rebuild(snapshots)` (silent — no
+  retroactive toasts/annotations on bulk restore).
+
+### Notes
+
+- The setup composer requires both a sticky wall AND a Pulse fire
+  near it AND velocity in the right direction. This is intentionally
+  more restrictive than any single signal — false positives drop
+  sharply at the cost of some recall.
+- Cooldown is 3-6 minutes per (type, strike) depending on sensitivity.
+  Prevents one wall test from spamming the toast on every snapshot.
+- Gamma overlay regime classifier returns `unknown` (zero γ is `—`).
+  Setup composer treats `unknown` as a regime-permissive case so the
+  detector still works on gamma-overlay sessions.
+
 ## [0.7.2] — MaxCh rework: new Pulse detector for quick + strong changes
 
 ### The problem
