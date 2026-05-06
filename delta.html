@@ -558,6 +558,11 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="med" selected>med</option>
       <option value="low">low</option>
     </select>
+    <select id="sAutoTier" title="Minimum confidence tier for annotations + toast. Level lines still render at all tiers regardless. ★★★ = walls with ≥30min hold; ★★+ = ≥15min; ★+ = ≥5min (most fires).">
+      <option value="3" selected>★★★</option>
+      <option value="2">★★+</option>
+      <option value="1">★+</option>
+    </select>
     <label class="auto-chirp" title="Play a brief tone when a setup fires"><input type="checkbox" id="chkChirp"> 🔊</label>
   </div>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
@@ -571,6 +576,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
   <div class="stat"><span class="slab">Maj +</span><span id="v-mp" class="sval pos">—</span></div>
   <div class="stat"><span class="slab">Maj −</span><span id="v-mn" class="sval neg">—</span></div>
   <div class="stat" title="Regime classifier. Long γ (spot above zero-gamma): dealers fade moves → mean-reverting. Short γ (spot below zero-gamma): dealers chase → trend-amplifying. Arrow = expected dealer flow direction at current spot."><span class="slab">Regime</span><span id="v-rg" class="regime-pill">—</span></div>
+  <div class="stat" title="AUTO ★ live fire density: setups firing per hour over the last 60 min of buffer time, after the ★ tier filter. Lower = quieter / more selective; higher = noisier / more sensitive. Empty when AUTO ★ is OFF."><span class="slab">★ rate</span><span id="v-fr" class="sval">—</span></div>
   <div id="stats-r">
     <div class="stat"><span class="badge" id="v-mode">RAW GEX</span></div>
     <div class="stat"><span class="slab">Snaps</span><span id="v-sn" class="sval">0</span></div>
@@ -839,11 +845,19 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <p><b>Cooldown</b>: per (type, strike) the same setup can't refire for 3-6 minutes (sensitivity-dependent). Prevents the same wall test from spamming the toast on every snapshot.</p>
     <h3>Sensitivity</h3>
     <dl>
-      <dt>high</dt><dd>Wide near-wall band (±0.10%), 60s pulse-recency window, lenient velocity threshold. More setups, more noise.</dd>
-      <dt>med <span style="color:#9aa">— default</span></dt><dd>±0.06% near-wall, 45s pulse window. Balanced.</dd>
-      <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor. Fewer setups, higher conviction.</dd>
+      <dt>high</dt><dd>Wide near-wall band (±0.10%), 60s pulse-recency window, lenient velocity threshold, 6m cooldown. More setups, more noise.</dd>
+      <dt>med <span style="color:#9aa">— default</span></dt><dd>±0.06% near-wall, 45s pulse window, 10m cooldown. Balanced.</dd>
+      <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor, 15m cooldown. Fewer setups, higher conviction.</dd>
     </dl>
-    <p><b>Audio chirp</b> (🔊 checkbox): brief WebAudio tone on each fire (660 Hz rejection / 880 Hz breakout). Off by default. Some browsers block audio until the user interacts with the page.</p>
+    <h3>★ tier filter</h3>
+    <p>Independent of sensitivity. Sets the minimum wall hold-time tier for emitting annotations / toasts / chirps. Level lines still render at all tiers regardless — the filter only gates the alert layer.</p>
+    <dl>
+      <dt>★★★ <span style="color:#9aa">— default</span></dt><dd>Only walls with ≥30 minutes of session hold time fire alerts. The most selective; highly likely to be a real key level for the day.</dd>
+      <dt>★★+</dt><dd>Walls with ≥15 minutes of hold. Includes some emerging structure, more fires.</dd>
+      <dt>★+</dt><dd>Walls with ≥5 minutes. Most permissive; useful in the first hour of the session before any wall has reached ★★★, or for studying the live composer's full output.</dd>
+    </dl>
+    <p>Use the <code>★ rate</code> readout in the stats bar to see live fires-per-hour after this filter applies. Color-coded: green &lt; 5/h, yellow 5-15/h, red &gt; 15/h.</p>
+    <p><b>Audio chirp</b> (🔊 checkbox): brief WebAudio tone on each fire passing the tier filter (660 Hz rejection / 880 Hz breakout). Off by default. Some browsers block audio until the user interacts with the page.</p>
 
     <h2>MaxCh overlay</h2>
     <p>The <b>MaxCh</b> selector overlays strikes absorbing GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets (current/1m/5m/10m/15m/30m) each pick a winning strike every second, with adjacent strikes randomly trading places. Three filter families are available, each tuned for a different question.</p>
@@ -2984,10 +2998,13 @@ function renderProfile() {
 // Output: setups → optional auto-annotations + toast notifications.
 const LIVE_SIGNALS = (function () {
   // Tunable thresholds (sensitivity = "med" by default; UI dropdown swaps).
+  // Cooldowns bumped 2.5-3× in v0.8.1 after empirical analysis of 2026-05-05
+  // showed 30 fires at 7270 with the prior 240s cooldown — too repetitive on
+  // a single wall test.
   const SENSITIVITY = {
-    high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 180 },
-    med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 240 },
-    low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 360 },
+    high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 360 },
+    med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 600 },
+    low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 900 },
   };
   let sens = SENSITIVITY.med;
 
@@ -3325,6 +3342,12 @@ function autoLabelsEnabled() {
 function autoChirpEnabled() {
   return document.getElementById('chkChirp')?.checked;
 }
+function autoMinTier() {
+  // Returns 1-3; setups with confidence < this tier are suppressed from
+  // annotations / toast / chirp (level lines still render at all tiers).
+  const v = parseInt(document.getElementById('sAutoTier')?.value, 10);
+  return isFinite(v) ? Math.max(1, Math.min(3, v)) : 3;
+}
 
 function chirp(setup) {
   if (!autoChirpEnabled()) return;
@@ -3347,6 +3370,10 @@ function chirp(setup) {
 
 async function onSetupFire(setup) {
   if (!autoLabelsEnabled()) return;
+  // Tier filter — only emit annotations / toast / chirp when the setup
+  // confidence meets or exceeds the minimum-tier dropdown setting. Level
+  // lines render independently at all tiers (visual context preserved).
+  if (setup.confidence < autoMinTier()) return;
   // Push to toast queue
   __toastQueue.push({ setup, expiresAt: Date.now() + TOAST_TTL_MS });
   if (__toastQueue.length > 5) __toastQueue.shift();
@@ -3552,6 +3579,30 @@ function updateStats(meta) {
     badge.textContent = 'Raw GEX';
     badge.classList.remove('delta-mode');
   }
+
+  // ── AUTO ★ fire density: setups/h over last 60 min of buffer time,
+  // after the ★ tier filter. Empty when AUTO ★ is OFF.
+  const frEl = document.getElementById('v-fr');
+  if (!frEl) return;
+  if (!autoLabelsEnabled() || !snapshots.length || typeof LIVE_SIGNALS === 'undefined') {
+    frEl.textContent = '—';
+    frEl.className = 'sval';
+    return;
+  }
+  const minTier = autoMinTier();
+  const latestTs = snapshots[snapshots.length - 1].ts;
+  const earliestTs = snapshots[0].ts;
+  const windowMs = 60 * 60 * 1000;
+  const wStart = Math.max(earliestTs, latestTs - windowMs);
+  const windowSec = Math.max(60, (latestTs - wStart) / 1000);
+  let count = 0;
+  for (const f of LIVE_SIGNALS.getSetupHistory()) {
+    if (f.ts >= wStart && f.confidence >= minTier) count++;
+  }
+  const perHour = count * 3600 / windowSec;
+  frEl.textContent = perHour < 0.5 ? '0/h' : `${perHour.toFixed(1)}/h`;
+  // Tint by density: green = quiet (<5/h), yellow = active (5-15/h), red = noisy (>15/h)
+  frEl.className = 'sval ' + (perHour > 15 ? 'neg' : perHour > 5 ? 'yel' : 'pos');
 }
 
 function hideOverlays() {
@@ -4101,19 +4152,26 @@ document.getElementById('btnAnnotClear').addEventListener('click', async () => {
 // Initial load + reload when (ticker, expiry, greek) changes.
 reloadAnnotations();
 
-// ── Auto-labels toggle + sensitivity ──────────────────────────────────
+// ── Auto-labels toggle + sensitivity + tier filter ────────────────────
 document.getElementById('btnAutoLabels').addEventListener('click', () => {
   const btn = document.getElementById('btnAutoLabels');
   btn.classList.toggle('on');
   if (!btn.classList.contains('on')) {
     __toastQueue = [];
   }
+  // Refresh density badge to reflect new on/off state
+  if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
   render();
 });
 document.getElementById('sAutoSens').addEventListener('change', (e) => {
   if (typeof LIVE_SIGNALS !== 'undefined') {
     LIVE_SIGNALS.setSensitivity(e.target.value);
   }
+});
+document.getElementById('sAutoTier').addEventListener('change', () => {
+  // Tier filter affects toast/annotation gating + density badge readout.
+  // Refresh density immediately on change.
+  if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
 });
 
 // ═══════════════════════════════════════════════════════

@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.8.1] — AUTO ★ tuning: ★ tier filter, longer cooldowns, live fire-density readout
+
+After running v0.8.0 retrospectively against the 2026-05-05 SPX session
+(133 fires at `med` sensitivity, 1 every ~3 minutes), three targeted
+adjustments to bring the system from "always firing" to "high
+conviction":
+
+### Changed — cooldowns
+Per-(type, strike) cooldown bumped 2.5-3× across all sensitivities:
+| sensitivity | old | new |
+|---|---|---|
+| high | 180s | **360s** |
+| med  | 240s | **600s** |
+| low  | 360s | **900s** |
+
+Yesterday's data showed ~30 fires at strike 7270 alone with the prior
+240s cooldown — too repetitive on a single wall test. The new values
+let one wall test produce 1-2 setups instead of 5-10.
+
+### Added — ★ tier filter
+New dropdown next to the sensitivity selector (★★★ default):
+- **★★★** (≥30 min wall hold) — only the day's most durable walls
+  fire annotations / toast / chirp. Default.
+- **★★+** (≥15 min hold) — adds emerging structure.
+- **★+** (all tiers) — most permissive; useful for the first
+  hour before any wall reaches ★★★, or to study the composer's
+  full output.
+
+The filter only gates the **alert layer** (annotations, toast, chirp).
+Persistent level lines render at all tiers regardless, so visual
+context is preserved.
+
+### Added — `★ rate` live density badge
+New stat in the stats bar. Shows AUTO ★ fires per hour over the last
+60 minutes of buffer time, after the ★ tier filter applies. Color-
+coded: **green** &lt;5/h, **yellow** 5-15/h, **red** &gt;15/h.
+
+Self-evident calibration: glance at the badge → "is this setting too
+noisy?" without needing to run the offline analyzer.
+
+### Combined impact (2026-05-05 retrospective at `med` sensitivity)
+
+|                                       | fires | per hour | near user event |
+|---------------------------------------|-------|----------|-----------------|
+| v0.8.0 default (no tier filter)       | 133   | 19.5     | 19.5%           |
+| v0.8.1 (cooldown bump only, tier ★+)  | 66    | 9.7      | 18%             |
+| v0.8.1 default (med + ★★★)            | **22**| **3.2**  | **41%**         |
+| v0.8.1 strictest (low + ★★★)          | 12    | 1.8      | 33%             |
+
+83% reduction in fires + 2× improvement in precision.
+
+### Updated
+- Help-overlay AUTO ★ section rewritten with the tier filter and
+  density-badge guidance.
+- Analyzer (`analyze-recording.js`) cooldowns updated to match;
+  setup-composer report now includes ★ tier projection table per
+  sensitivity.
+
 ## [0.8.0] — Live setup detector: AUTO ★, level lines, rejection / breakout
 
 The first iteration of the **level detector + setup composer** designed
