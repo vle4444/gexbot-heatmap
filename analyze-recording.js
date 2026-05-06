@@ -729,6 +729,197 @@ function fmtCest(ts)  {
   const d = new Date(ts + 2 * 3600 * 1000);
   return d.toISOString().replace('T', ' ').slice(0, 19) + ' (CEST)';
 }
+function fmtCestHm(ts) { return fmtCest(ts).slice(11, 16); }
+function fmtCestHms(ts) { return fmtCest(ts).slice(11, 19); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SVG REPORT — spot trace with setup-fire dots overlaid
+// ─────────────────────────────────────────────────────────────────────────────
+// Self-contained SVG file. Spot price line, top sticky levels as faint
+// horizontal references, user events as red vertical lines, sweep candidates
+// as gray ticks, setup fires as colored circles (orange = rejection, blue =
+// breakout, size = ★ tier). SVG `<title>` elements give per-element hover
+// tooltips in any modern browser when the file is opened directly.
+function svgEscape(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function writeSvgReport(outPath, snaps, fires, events, sweeps, opts) {
+  opts = opts || {};
+  const W      = opts.width  || 2400;
+  const H      = opts.height || 700;
+  const M      = { top: 60, right: 240, bottom: 50, left: 70 };
+  const plotW  = W - M.left - M.right;
+  const plotH  = H - M.top  - M.bottom;
+  const tStart = snaps[0].ts;
+  const tEnd   = snaps[snaps.length - 1].ts;
+  // Spot range (with 5% padding)
+  let spMin = Infinity, spMax = -Infinity;
+  for (const s of snaps) { const v = s.meta.spot; if (v > 0) { if (v < spMin) spMin = v; if (v > spMax) spMax = v; } }
+  const spPad  = (spMax - spMin) * 0.05;
+  spMin -= spPad; spMax += spPad;
+
+  const xOf = (ts) => M.left + (ts - tStart) / (tEnd - tStart) * plotW;
+  const yOf = (sp) => M.top + plotH - (sp - spMin) / (spMax - spMin) * plotH;
+
+  // Top sticky levels — replay the level tracker once to find them
+  const levelMap = new Map();
+  for (let ci = 0; ci < snaps.length; ci++) {
+    const m = snaps[ci].meta;
+    if (typeof m.majPos === 'number' && m.majPos > 0) {
+      const cs = levelMap.get(m.majPos) || { strike: m.majPos, holdSnaps: 0, lastSeenCi: -1 };
+      cs.holdSnaps++; cs.lastSeenCi = ci; levelMap.set(m.majPos, cs);
+    }
+    if (typeof m.majNeg === 'number' && m.majNeg > 0) {
+      const cs = levelMap.get(m.majNeg) || { strike: m.majNeg, holdSnaps: 0, lastSeenCi: -1 };
+      cs.holdSnaps++; cs.lastSeenCi = ci; levelMap.set(m.majNeg, cs);
+    }
+  }
+  const topLevels = [...levelMap.values()].filter(l => l.holdSnaps >= 60).sort((a, b) => b.holdSnaps - a.holdSnaps).slice(0, 6);
+
+  // Build SVG
+  const lines = [];
+  lines.push(`<?xml version="1.0" encoding="UTF-8"?>`);
+  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="-apple-system, Segoe UI, system-ui, Arial, sans-serif">`);
+  lines.push(`<style>
+    .bg{fill:#0b0b10}
+    .grid{stroke:#222;stroke-width:1}
+    .axis{stroke:#444;stroke-width:1}
+    .axisLabel{fill:#9aa;font-size:11px}
+    .title{fill:#fff;font-size:15px;font-weight:600}
+    .subtitle{fill:#9aa;font-size:12px}
+    .spot{fill:none;stroke:#a0d8ff;stroke-width:1.6;stroke-linejoin:round}
+    .level{stroke-dasharray:4 3;stroke-width:1;opacity:0.55}
+    .levelLabel{font-size:11px;font-weight:600}
+    .userEvt{stroke:#ff3030;stroke-width:1.5;stroke-dasharray:5 3;opacity:0.85}
+    .userEvtLabel{fill:#ff5050;font-size:11px;font-weight:600}
+    .sweep{stroke:#888;stroke-width:1;opacity:0.45}
+    .fire-rejection{fill:#ff8840;stroke:#000;stroke-width:0.6}
+    .fire-breakout{fill:#3098e8;stroke:#000;stroke-width:0.6}
+    .legend{fill:#cdd;font-size:11px}
+    text{user-select:none}
+  </style>`);
+
+  // Background
+  lines.push(`<rect class="bg" x="0" y="0" width="${W}" height="${H}"/>`);
+
+  // Title
+  const titleStr = `${opts.title || 'Setup composer fires'}`;
+  const subStr   = `${snaps.length} snapshots · ${fmtCestHm(tStart)} → ${fmtCestHm(tEnd)} CEST · spot ${spMin.toFixed(1)}…${spMax.toFixed(1)}`;
+  lines.push(`<text class="title" x="${M.left}" y="28">${svgEscape(titleStr)}</text>`);
+  lines.push(`<text class="subtitle" x="${M.left}" y="46">${svgEscape(subStr)}</text>`);
+
+  // Y axis: spot price ticks (every 5 pts, rounded)
+  const tickStep = 5;
+  const yStart = Math.ceil(spMin / tickStep) * tickStep;
+  for (let yv = yStart; yv <= spMax; yv += tickStep) {
+    const y = yOf(yv);
+    lines.push(`<line class="grid" x1="${M.left}" y1="${y}" x2="${M.left + plotW}" y2="${y}"/>`);
+    lines.push(`<text class="axisLabel" x="${M.left - 6}" y="${y + 4}" text-anchor="end">${yv.toFixed(0)}</text>`);
+  }
+
+  // X axis: hour marks (CEST)
+  const hourMs = 3600 * 1000;
+  const firstHour = Math.ceil(tStart / hourMs) * hourMs;
+  for (let t = firstHour; t <= tEnd; t += hourMs) {
+    const x = xOf(t);
+    lines.push(`<line class="grid" x1="${x}" y1="${M.top}" x2="${x}" y2="${M.top + plotH}"/>`);
+    lines.push(`<text class="axisLabel" x="${x}" y="${M.top + plotH + 18}" text-anchor="middle">${fmtCestHm(t)}</text>`);
+  }
+  // Bottom axis line + label
+  lines.push(`<line class="axis" x1="${M.left}" y1="${M.top + plotH}" x2="${M.left + plotW}" y2="${M.top + plotH}"/>`);
+  lines.push(`<text class="axisLabel" x="${M.left + plotW/2}" y="${M.top + plotH + 38}" text-anchor="middle">CEST</text>`);
+  lines.push(`<line class="axis" x1="${M.left}" y1="${M.top}" x2="${M.left}" y2="${M.top + plotH}"/>`);
+  lines.push(`<text class="axisLabel" x="${M.left - 50}" y="${M.top + plotH/2}" transform="rotate(-90 ${M.left - 50} ${M.top + plotH/2})" text-anchor="middle">spot</text>`);
+
+  // Sticky levels (faint horizontal lines + left labels)
+  const levelColors = ['#ff8840', '#ffd830', '#a0d8ff', '#3098e8', '#888', '#666'];
+  topLevels.forEach((lv, i) => {
+    if (lv.strike < spMin || lv.strike > spMax) return;
+    const y = yOf(lv.strike);
+    const col = levelColors[Math.min(i, levelColors.length - 1)];
+    const stars = lv.holdSnaps >= 1800 ? '★★★' : lv.holdSnaps >= 900 ? '★★' : '★';
+    lines.push(`<line class="level" x1="${M.left}" y1="${y}" x2="${M.left + plotW}" y2="${y}" stroke="${col}"/>`);
+    lines.push(`<text class="levelLabel" x="${M.left + 4}" y="${y - 3}" fill="${col}">${stars} ${lv.strike} · ${Math.round(lv.holdSnaps / 60)}m</text>`);
+  });
+
+  // Spot trace
+  let path = '';
+  for (let i = 0; i < snaps.length; i++) {
+    const sp = snaps[i].meta.spot;
+    if (!(sp > 0)) continue;
+    const x = xOf(snaps[i].ts);
+    const y = yOf(sp);
+    path += (path ? ' L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
+  }
+  lines.push(`<path class="spot" d="${path}"/>`);
+
+  // User events (vertical lines + labels)
+  for (const ev of events) {
+    if (ev.ts < tStart || ev.ts > tEnd) continue;
+    const x = xOf(ev.ts);
+    lines.push(`<line class="userEvt" x1="${x}" y1="${M.top}" x2="${x}" y2="${M.top + plotH}"><title>${svgEscape(ev.label)} — ${fmtCestHms(ev.ts)} CEST</title></line>`);
+    lines.push(`<text class="userEvtLabel" x="${x + 4}" y="${M.top + 14}">${svgEscape(ev.label)}</text>`);
+  }
+
+  // Sweep candidates (small ticks at bottom)
+  for (const sw of sweeps) {
+    const ts = snaps[sw.peakCi].ts;
+    if (ts < tStart || ts > tEnd) continue;
+    const x = xOf(ts);
+    lines.push(`<line class="sweep" x1="${x}" y1="${M.top + plotH - 16}" x2="${x}" y2="${M.top + plotH}"><title>sweep ${sw.ret >= 0 ? '+' : ''}${sw.ret.toFixed(2)}% @ ${fmtCestHms(ts)}</title></line>`);
+  }
+
+  // Setup fires (color = type, radius = ★ tier, hover = full metadata)
+  for (const f of fires) {
+    if (f.ts < tStart || f.ts > tEnd) continue;
+    const x = xOf(f.ts);
+    const y = yOf(f.spot);
+    const r = f.confidence === 3 ? 6 : f.confidence === 2 ? 4 : 2.5;
+    const cls = `fire-${f.type}`;
+    const stars = '★'.repeat(f.confidence) + '☆'.repeat(3 - f.confidence);
+    const dirStr = f.type === 'breakout' ? (f.dir > 0 ? '↑' : '↓') : (f.pulseDir > 0 ? '+' : '−');
+    const tipLines = [
+      `${stars} ${f.type} ${f.strike} ${dirStr}`,
+      `${fmtCestHms(f.ts)} CEST`,
+      `spot ${f.spot.toFixed(2)} · vel ${(f.vel >= 0 ? '+' : '')}${f.vel.toFixed(3)}%`,
+      `regime: ${f.regime} · hold ${f.holdMin.toFixed(0)}m · pulse ${f.pulseMag.toFixed(0)}`,
+    ];
+    lines.push(`<circle class="${cls}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}"><title>${svgEscape(tipLines.join('\n'))}</title></circle>`);
+  }
+
+  // Legend (right side)
+  const lx = M.left + plotW + 16;
+  let ly = M.top + 6;
+  const legend = (txt, swatch) => {
+    if (swatch) lines.push(`<g transform="translate(${lx} ${ly})">${swatch}</g>`);
+    lines.push(`<text class="legend" x="${lx + (swatch ? 22 : 0)}" y="${ly + 4}">${svgEscape(txt)}</text>`);
+    ly += 22;
+  };
+  lines.push(`<text class="title" x="${lx}" y="${ly - 4}" font-size="13">Legend</text>`); ly += 18;
+  legend('rejection ★★★', '<circle class="fire-rejection" cx="6" cy="0" r="6"/>');
+  legend('rejection ★★', '<circle class="fire-rejection" cx="6" cy="0" r="4"/>');
+  legend('rejection ★', '<circle class="fire-rejection" cx="6" cy="0" r="2.5"/>');
+  legend('breakout ★★★', '<circle class="fire-breakout" cx="6" cy="0" r="6"/>');
+  legend('breakout ★★', '<circle class="fire-breakout" cx="6" cy="0" r="4"/>');
+  legend('breakout ★', '<circle class="fire-breakout" cx="6" cy="0" r="2.5"/>');
+  ly += 6;
+  legend('user event', '<line class="userEvt" x1="0" y1="-6" x2="0" y2="6"/>');
+  legend('sweep ≥0.08% / 5m', '<line class="sweep" x1="0" y1="-6" x2="0" y2="6"/>');
+  legend('sticky level', '<line class="level" stroke="#ff8840" x1="0" y1="0" x2="14" y2="0"/>');
+  ly += 8;
+  legend(`fires: ${fires.length}`, '');
+  legend(`★★★: ${fires.filter(f => f.confidence === 3).length}`, '');
+  legend(`★★: ${fires.filter(f => f.confidence === 2).length}`, '');
+  legend(`★: ${fires.filter(f => f.confidence === 1).length}`, '');
+  legend(`hover any element`, '');
+  legend(`for full details`, '');
+
+  lines.push(`</svg>`);
+  fs.writeFileSync(outPath, lines.join('\n'));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SWEEP — auto-detect spot moves
@@ -1029,8 +1220,12 @@ function main() {
     return best;
   }
 
+  // Track all fires per sensitivity for the SVG output below.
+  const firesBySens = {};
+
   for (const sensName of ['high', 'med', 'low']) {
     const fires = runSetupComposer(snaps, sensName);
+    firesBySens[sensName] = fires;
     lines.push(`## Setup composer fires — sensitivity: \`${sensName}\``);
     lines.push('');
     if (!fires.length) {
@@ -1111,6 +1306,22 @@ function main() {
   const outPath = args.outPath || 'analysis-report.md';
   fs.writeFileSync(outPath, lines.join('\n'));
   console.error(`\nwrote ${outPath} (${lines.length} lines)`);
+
+  // ── SVG outputs (one per sensitivity) ──────────────────────────────────
+  const userEventList = args.events
+    ? JSON.parse(fs.readFileSync(args.events, 'utf8')).map(ev => {
+        const tz = ev.tz || '+02:00';
+        return { label: ev.label, ts: new Date(`${ev.tsLocal}${tz}`).getTime() };
+      })
+    : [];
+  const baseOut = outPath.replace(/\.md$/, '');
+  for (const sensName of ['high', 'med', 'low']) {
+    const svgPath = `${baseOut}-${sensName}.svg`;
+    writeSvgReport(svgPath, snaps, firesBySens[sensName] || [], userEventList, candidates, {
+      title: `Setup composer fires — ${path.basename(args.files[0]).slice(0, 40)} — sensitivity: ${sensName}`,
+    });
+    console.error(`wrote ${svgPath}`);
+  }
 }
 
 main();
