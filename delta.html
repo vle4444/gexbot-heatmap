@@ -544,12 +544,17 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) fires fast on quick + strong changes — recommended default. Event detectors (burst / swarm / pump) flag sudden coordinated activity. CUSUM is demoted to Legacy as of v0.8.2 — empirical lift in production was ~1.0 (always-on, no signal).">
+    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) catches CHANGES, Loud (magnitude rank vs session-max) catches BIG prints regardless of history — complementary. Event detectors flag chain-aggregate spikes. CUSUM demoted (lift ≈ 1.0).">
       <option value="off">off</option>
-      <optgroup label="Pulse — per-strike z-score (fast + strong)">
+      <optgroup label="Pulse — per-strike z-score (catches changes)">
         <option value="pulse_fast">fast (low threshold, short hold)</option>
         <option value="pulse_normal" selected>normal</option>
         <option value="pulse_strict">strict (high threshold, long hold)</option>
+      </optgroup>
+      <optgroup label="Loud — magnitude rank (catches big prints)">
+        <option value="loud_loose">loose (≥10% of session max)</option>
+        <option value="loud_normal">normal (≥20% of session max)</option>
+        <option value="loud_strict">strict (≥35% of session max)</option>
       </optgroup>
       <optgroup label="Event detectors">
         <option value="burst">burst</option>
@@ -947,6 +952,17 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </dl>
     <p>Pulse is <b>magnitude-aware</b>: a strike that wins one bucket with a huge value will fire, where CUSUM (below) would filter it as "not persistent." This is the right detector for spotting fresh walls forming, sharp wall flips, and similar quick events.</p>
 
+    <h3>Loud — magnitude rank (added v0.8.7)</h3>
+    <p>Complements Pulse. Where Pulse asks "is this print unusually large for THIS strike?" (a change detector), <b>Loud</b> asks "is this print large in absolute SESSION terms?" (a rank detector). Use Loud when a strike has been moderately active and you want to catch when it absorbs a print that's genuinely big regardless of its history — e.g., a wall absorbing 60% of session-max magnitude.</p>
+    <p>Algorithm: fire when <code>|dir|</code> at a strike ≥ <code>sessionMaxAbs × magPct</code>. No EMA, no z-score, no per-strike adaptation. Per-strike cooldown prevents repeat-fire on a sustained big print.</p>
+    <dl>
+      <dt>loose</dt><dd>≥10% of session max. ~10 fires/hour on a typical SPX session. Catches even moderately-large prints. <span style="color:#9aa">(magPct=0.10, hold=3, cooldown=30s)</span></dd>
+      <dt>normal</dt><dd>≥20% of session max. ~5 fires/hour. Balanced — catches genuinely significant prints without much noise. <span style="color:#9aa">(magPct=0.20, hold=5, cooldown=60s)</span></dd>
+      <dt>strict</dt><dd>≥35% of session max. ~1.5 fires/hour. Only the most significant prints — usually 5-15 events per session. <span style="color:#9aa">(magPct=0.35, hold=8, cooldown=90s)</span></dd>
+    </dl>
+    <p>Calibrated against the 2026-05-06 SPX session where a 7375 wall print at 63% of session-max preceded a price rise. All three presets catch that event; <code>loud_normal</code> + <code>loud_strict</code> catch it without other noise nearby.</p>
+    <p><b>When to use Pulse vs Loud:</b> they're complementary. Pulse catches "this strike just woke up." Loud catches "this strike just put up a really big number." A strike that's been M- for an hour and just doubled its print magnitude → Pulse fires (z-score spike). A strike that's been M- for an hour and just put up a session-record print → both fire. A strike that's been M- and consistent at 60% magnitude → only Loud fires (Pulse's EMA absorbed the consistent baseline).</p>
+
     <h3>Legacy: CUSUM + hysteresis (demoted in v0.8.2)</h3>
     <div class="warn">CUSUM is demoted to a "Legacy" group at the bottom of the dropdown. Empirical analysis of recorded sessions showed every preset (loose → extreme) firing 83-99% of snapshots — i.e., always on, with lift ≈ 1.0 vs random. By design CUSUM counts <i>bucket wins</i>, not magnitudes, so it filters out fast events in favor of multi-second sustained dominance — but in practice, sustained dominance is the steady state of /maxchange, not the exception. Pulse (above) is the recommended default for both quick events and persistent activity.</div>
     <p>The presets remain available for niche cases where you specifically want the persistent-flow view. Per-strike signed CUSUM (Page 1954) with hysteresis (Schmitt 1938).</p>
@@ -966,11 +982,12 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>swarm</dt><dd>Cluster detector. Fires when ≥ 2 same-sign firing strikes sit within ±5 price points of each other in the same snapshot, each carrying ≥ 5% of session max-abs. Catches "sweep" patterns where flow lights up a row of adjacent strikes simultaneously — signature of aggressive directional trading. Quiet because random single-strike noise rarely clusters.</dd>
       <dt>pump <span style="color:#9aa">— most stringent</span></dt><dd>Strict combination: <i>burst</i> condition (z ≥ 2.0, lowered slightly since combined) AND <i>swarm</i> condition AND the cluster center is within ±0.5% of latest spot. Designed for genuine pump precursors — coordinated near-spot directional surges. Will fire least often; expect long quiet periods punctuated by a few clean events per session.</dd>
     </dl>
-    <p>The three families answer different questions:</p>
+    <p>The four families answer different questions:</p>
     <ul>
-      <li><b>Pulse</b> — "what just changed at <i>this</i> strike" — per-strike velocity</li>
-      <li><b>CUSUM</b> — "where is sustained flow building" — per-strike persistence</li>
+      <li><b>Pulse</b> — "what just changed at <i>this</i> strike" — per-strike velocity (z-score)</li>
+      <li><b>Loud</b> — "is this print big in <i>session</i> terms" — per-strike magnitude rank</li>
       <li><b>Event detectors</b> — "is something coordinated happening right now" — snapshot-aggregate</li>
+      <li><b>CUSUM</b> (legacy) — "where is sustained flow building" — per-strike persistence on bucket-wins</li>
     </ul>
     <p>They're mutually exclusive in the dropdown — pick one based on what you're watching for.</p>
     <p><b>Glyph encoding</b>: color = direction of imbalance change (green = call-side accumulation, red = put-side accumulation); size = magnitude of the most recent print at the strike, normalized over the visible window; opacity = same.</p>
@@ -2533,6 +2550,110 @@ function renderHeat() {
         }
       }
 
+      renderSnapStates(snapStates, globalMaxMag, maxChSel);
+    }
+
+    // ── LOUD (v0.8.7) — magnitude-rank detector, complementary to Pulse ──
+    // Pulse fires on per-strike z-score (a *change* detector). It can miss
+    // events where a strike has been moderately active and just got bigger
+    // (the strike's own EMA already absorbed the elevated baseline).
+    //
+    // LOUD answers a different question: is THIS print large in absolute
+    // session terms, regardless of the strike's history? Fires whenever
+    // magnitude at a strike ≥ sessionMaxAbs × magPct, with a per-strike
+    // cooldown so a sustained big print doesn't repeat-fire every snap.
+    //
+    // Empirically calibrated on 2026-05-06 SPX (a 7375 wall print at 63%
+    // of session-max preceded a price rise that Pulse caught but the user
+    // wanted reliable independent of context). All three presets catch it.
+    const LOUD_PRESETS = {
+      loud_loose:  { magPct: 0.10, hold: 3, holdMagPct: 0.06, cooldownSec: 30 },
+      loud_normal: { magPct: 0.20, hold: 5, holdMagPct: 0.12, cooldownSec: 60 },
+      loud_strict: { magPct: 0.35, hold: 8, holdMagPct: 0.21, cooldownSec: 90 },
+    };
+    const loudPreset = LOUD_PRESETS[maxChSel];
+    if (loudPreset) {
+      const { magPct, hold, holdMagPct, cooldownSec } = loudPreset;
+      // Session max-abs scan
+      let lSessionMaxAbs = 0;
+      for (const s of snapshots) {
+        const mp = s.meta.maxPriors;
+        if (!mp) continue;
+        for (let b = 0; b < 6; b++) {
+          const e = mp[b];
+          if (!e) continue;
+          const a = Math.abs(parseFloat(e[1]));
+          if (a > lSessionMaxAbs) lSessionMaxAbs = a;
+        }
+      }
+      const fireThresh = lSessionMaxAbs * magPct;
+      const holdThresh = lSessionMaxAbs * holdMagPct;
+
+      const tracker = new Map();           // strike → { state, hold, peakMag, lastM, lastDir }
+      const cooldown = new Map();          // strike → ci until which suppressed
+      const snapStates = new Array(nCols);
+      let globalMaxMag = 0;
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+
+        // Update existing
+        for (const cs of tracker.values()) {
+          const info = fired.get(cs.strike);
+          cs.lastM   = info ? info.absSum : 0;
+          cs.lastDir = info ? (info.dirSum >= 0 ? 1 : -1) : 0;
+        }
+        // Register new
+        for (const [strike, info] of fired) {
+          if (!tracker.has(strike)) {
+            tracker.set(strike, {
+              strike, state: 0, hold: 0, peakMag: 0,
+              lastM: info.absSum,
+              lastDir: info.dirSum >= 0 ? 1 : -1,
+            });
+          }
+        }
+        // State machine
+        for (const cs of tracker.values()) {
+          const cdUntilCi = cooldown.get(cs.strike) || -1;
+          if (cs.state === 0) {
+            if (cs.lastM >= fireThresh && ci > cdUntilCi) {
+              cs.state   = cs.lastDir || 1;
+              cs.hold    = hold;
+              cs.peakMag = cs.lastM;
+              cooldown.set(cs.strike, ci + cooldownSec);
+            }
+          } else {
+            if (cs.lastM > cs.peakMag) cs.peakMag = cs.lastM;
+            if (cs.lastM >= holdThresh) {
+              cs.hold = hold;
+              if (cs.lastDir !== 0) cs.state = cs.lastDir;
+            } else {
+              cs.hold -= 1;
+              if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+            }
+          }
+        }
+
+        // Capture render state at bin-end positions
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const cs of tracker.values()) {
+                if (cs.state !== 0 && cs.peakMag > 0) {
+                  list.push({ strike: cs.strike, state: cs.state, mag: cs.peakMag });
+                  if (cs.peakMag > globalMaxMag) globalMaxMag = cs.peakMag;
+                }
+              }
+              snapStates[k] = list;
+            }
+          }
+        }
+      }
       renderSnapStates(snapStates, globalMaxMag, maxChSel);
     }
 

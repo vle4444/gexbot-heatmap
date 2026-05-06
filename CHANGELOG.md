@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.8.7] — New `Loud` MaxCh family — magnitude-rank detector
+
+User-reported: scrolling through Pulse presets, none caught a notable
+event at strike 7375 around 18:09 CEST on 2026-05-06 — a print at 63%
+of session-max preceding a price rise. Although offline replay shows
+Pulse `normal` *does* fire on that print (z=31.57), the user wants a
+detector that's reliable independent of per-strike history.
+
+### New mode family — Loud
+A magnitude-rank detector. No EMA, no z-score, no per-strike adaptation.
+Fires whenever `|dir|` at a strike ≥ `sessionMaxAbs × magPct`. Per-strike
+cooldown to prevent repeat-fire on a sustained big print.
+
+| Preset | magPct | hold | cooldown | typical fires/h | catches 7375 event |
+|---|---|---|---|---|---|
+| `loud_loose`  | 10% | 3 | 30s | ~10 | yes |
+| `loud_normal` | 20% | 5 | 60s | ~5  | yes |
+| `loud_strict` | 35% | 8 | 90s | ~1.5 | yes |
+
+Calibrated against the 2026-05-06 SPX session: all three presets catch
+the 7375 event; `loud_normal` and `loud_strict` catch it with low noise
+(5 and 1.5 fires/hour respectively over a 9.5-hour session).
+
+### Why Loud and Pulse are complementary
+
+- **Pulse** asks "is this print unusually large for *this* strike?" —
+  a change/velocity detector. Catches "this strike just woke up" or
+  "this strike just spiked harder than usual".
+- **Loud** asks "is this print large in *session* terms?" — a magnitude/
+  rank detector. Catches "this strike just put up a really big number"
+  regardless of its history.
+
+A strike that's been M- consistently at 60% magnitude → only Loud fires
+(Pulse's EMA absorbed the consistent baseline). A strike that's been M-
+and just *doubled* → only Pulse fires (60% → 70% isn't a session-rank
+event but it's a per-strike z-score). A genuine session-record print →
+both fire.
+
+The dropdown now reads (from top to bottom):
+1. Pulse (per-strike velocity) — recommended for change detection
+2. **Loud** (magnitude rank) — added v0.8.7
+3. Event detectors (burst / swarm / pump)
+4. Legacy CUSUM (demoted)
+
+Help overlay rewritten with the four-family comparison.
+
 ## [0.8.6] — Remove wall-touch dots entirely
 
 User feedback after the v0.8.5 rewrite: the wall-touch concept is just
