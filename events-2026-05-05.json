@@ -1,0 +1,7 @@
+[
+  { "label": "bounce from 7255",   "tsLocal": "2026-05-05T19:10:00", "tz": "+02:00", "type": "bounce" },
+  { "label": "bounce",             "tsLocal": "2026-05-05T20:53:00", "tz": "+02:00", "type": "bounce" },
+  { "label": "rejection at 7270",  "tsLocal": "2026-05-05T21:14:00", "tz": "+02:00", "type": "rejection" },
+  { "label": "rejection at 7270 #2","tsLocal": "2026-05-05T21:20:00", "tz": "+02:00", "type": "rejection" },
+  { "label": "dump",               "tsLocal": "2026-05-05T21:50:00", "tz": "+02:00", "type": "dump" }
+]
