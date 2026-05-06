@@ -606,7 +606,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="med" selected>med</option>
       <option value="low">low</option>
     </select>
-    <select id="sAutoTier" title="Minimum tier for level lines, wall-touch dots, annotations, and toasts. ★★★ = walls with ≥30min hold; ★★+ = ≥15min; ★+ = ≥5min (most fires).">
+    <select id="sAutoTier" title="Minimum tier for level lines, annotations, and toasts. ★★★ = walls with ≥30min hold; ★★+ = ≥15min; ★+ = ≥5min.">
       <option value="3" selected>★★★</option>
       <option value="2">★★+</option>
       <option value="1">★+</option>
@@ -893,16 +893,6 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>Toast notifications</dt>
       <dd>A floating panel in the top-right of the chart shows the last few setups with timestamp, spot, hold-time, and confidence stars. Click a row to scroll the chart to that snapshot.</dd>
     </dl>
-    <h3>Wall-touch dots <span style="color:#9aa">— v0.8.3, rewritten v0.8.5</span></h3>
-    <p>Marks moments when spot enters a near-wall zone (±0.08% of a sticky wall passing the ★ tier filter). Two glyph styles:</p>
-    <dl>
-      <dt>Solid filled dot</dt>
-      <dd>Spot just <b>entered</b> the wall's near-zone. One per entry; per-wall re-entry gap of 60s prevents micro-oscillations from spamming.</dd>
-      <dt>Hollow ring</dt>
-      <dd>Spot's <b>deepest approach</b> within the current zone (closer to the wall than the entry point). Only emitted if spot kept getting closer after entry — so a brief touch produces just the entry dot; a sustained test produces entry + ring.</dd>
-    </dl>
-    <p>Color matches the wall's tier (orange ★★★, yellow ★★, blue ★). v0.8.3 emitted one dot per snapshot, which flooded the trace when spot stayed near a wall for 30+ minutes — v0.8.5 fixes that by only marking transitions and apexes.</p>
-
     <h3>Two setup types</h3>
     <dl>
       <dt>Rejection</dt>
@@ -931,13 +921,12 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor, 15m cooldown. Fewer setups, higher conviction.</dd>
     </dl>
     <h3>★ tier filter</h3>
-    <p>Independent of sensitivity. Sets the minimum wall hold-time tier for three things at once (changed in v0.8.3 — previously only the alert layer):</p>
+    <p>Independent of sensitivity. Sets the minimum wall hold-time tier for two things:</p>
     <ol>
       <li>Which sticky-level lines render on the chart</li>
-      <li>Which walls trigger wall-touch dots when spot approaches</li>
       <li>Which setups can emit annotations / toast / chirp</li>
     </ol>
-    <p>Visually toggling the dropdown should now produce immediate change — sticky-level lines appear / disappear, wall-touch dots gain / lose density, and the <code>★ rate</code> in the stats bar adjusts.</p>
+    <p>Toggling the dropdown produces immediate visual change — sticky-level lines appear / disappear and the <code>★ rate</code> in the stats bar adjusts.</p>
     <dl>
       <dt>★★★ <span style="color:#9aa">— default</span></dt><dd>Only walls with ≥30 minutes of session hold time fire alerts. The most selective; highly likely to be a real key level for the day.</dd>
       <dt>★★+</dt><dd>Walls with ≥15 minutes of hold. Includes some emerging structure, more fires.</dd>
@@ -3568,133 +3557,9 @@ function renderLevelLines() {
   heatCX.restore();
 }
 
-// v0.8.5: Wall-touch indicator (rewritten). v0.8.3 emitted a dot every
-// snapshot where spot was within range — that produced a flood when spot
-// chopped near a wall for 30+ minutes (legitimate scenario, ugly result).
-//
-// New behavior: one dot per "entry" into a near-wall zone, plus a small
-// dot at the deepest-approach point if spot stayed in the zone for a
-// while. This way: brief touch → 1 dot. Sustained test → 2 dots (entry
-// + closest approach). Continuous chop near a wall doesn't spam.
-//
-// Min re-entry gap: 60s for the same wall — prevents micro-oscillations
-// at the band boundary from emitting repeated dots.
-function renderWallTouches() {
-  if (!autoLabelsEnabled()) return;
-  if (!snapshots.length) return;
-  if (yMode() !== 'abs') return;
-  const NEAR_PCT = 0.0008;
-  const REENTRY_GAP_SEC = 60;
-
-  const minTier = autoMinTier();
-  const ci = snapshots.length - 1;
-  const levels = LIVE_SIGNALS.topLevels(8, ci, 60);
-  if (!levels.length) return;
-  const stickyWalls = [];
-  for (const lv of levels) {
-    const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
-    if (stars < minTier) continue;
-    stickyWalls.push({ strike: lv.strike, stars });
-  }
-  if (!stickyWalls.length) return;
-
-  const W = heatCV.clientWidth, H = heatCV.clientHeight;
-  const m = renderMetrics();
-
-  // First pass: build event list (entry points + deepest-approach points)
-  // walking the FULL visible source range in source-snap units (binSize
-  // doesn't apply here — we want fine-grained transition detection).
-  const events = [];                // {ci, wall, distPct, kind: 'entry'|'apex'}
-  let inZone = null;                // currently-tracked wall (object) or null
-  let deepest = null;               // {ci, distPct, wall} during current zone
-  let lastDotPerWall = new Map();   // strike → ts of last emitted dot
-  const sourceStart = m.startI, sourceEnd = m.endI;
-
-  for (let i = sourceStart; i < sourceEnd; i++) {
-    const snap = snapshots[i];
-    const sp = snap.meta.spot;
-    if (!(sp > 0)) continue;
-
-    let curWall = null, curDistPct = Infinity;
-    for (const w of stickyWalls) {
-      const d = Math.abs(sp - w.strike) / sp;
-      if (d <= NEAR_PCT && d < curDistPct) {
-        curWall = w; curDistPct = d;
-      }
-    }
-
-    const inZoneStrike = inZone ? inZone.strike : null;
-    const curStrike    = curWall ? curWall.strike : null;
-
-    if (curStrike !== inZoneStrike) {
-      // Transition. If we were inside a zone, finalize "apex" if it's
-      // distinctly deeper than the entry (i.e., spot moved closer mid-touch).
-      if (inZone && deepest) {
-        const entryEvt = events[events.length - 1];
-        if (entryEvt && entryEvt.ci !== deepest.ci) {
-          events.push({ ci: deepest.ci, wall: deepest.wall, distPct: deepest.distPct, kind: 'apex' });
-        }
-      }
-      // If we just entered a (different) zone, emit entry event respecting
-      // the per-wall re-entry gap.
-      if (curWall) {
-        const last = lastDotPerWall.get(curStrike) || -Infinity;
-        if (snap.ts - last >= REENTRY_GAP_SEC * 1000) {
-          events.push({ ci: i, wall: curWall, distPct: curDistPct, kind: 'entry' });
-          lastDotPerWall.set(curStrike, snap.ts);
-        }
-        deepest = { ci: i, wall: curWall, distPct: curDistPct };
-      } else {
-        deepest = null;
-      }
-      inZone = curWall;
-    } else if (inZone) {
-      // Still in same zone — track deepest approach.
-      if (curDistPct < deepest.distPct) deepest = { ci: i, wall: curWall, distPct: curDistPct };
-    }
-  }
-  // Tail: if we ended still in a zone, emit final apex if deeper than entry
-  if (inZone && deepest) {
-    const entryEvt = events[events.length - 1];
-    if (entryEvt && entryEvt.ci !== deepest.ci && entryEvt.kind === 'entry' && entryEvt.wall.strike === deepest.wall.strike) {
-      events.push({ ci: deepest.ci, wall: deepest.wall, distPct: deepest.distPct, kind: 'apex' });
-    }
-  }
-
-  if (!events.length) return;
-
-  heatCX.save();
-  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
-  for (const ev of events) {
-    const snap = snapshots[ev.ci];
-    const sp = snap.meta.spot;
-    if (!(sp >= yDomain.min && sp <= yDomain.max)) continue;
-    // Map source ci to output column k
-    const k = Math.floor((ev.ci - m.startI) / m.binSize);
-    if (k < 0 || k >= m.nCols) continue;
-    const x = m.effPAX + k * m.effColW + m.effColW / 2;
-    const y = yToPx(sp, H);
-    const stars = ev.wall.stars;
-    const baseR = stars === 3 ? 3.2 : stars === 2 ? 2.6 : 2.0;
-    // Apex = slightly smaller, hollow ring; entry = solid filled
-    const color = stars === 3 ? '#ff8840' : stars === 2 ? '#ffd830' : '#a0d8ff';
-    heatCX.globalAlpha = 0.32;
-    heatCX.fillStyle = color;
-    heatCX.beginPath(); heatCX.arc(x, y, baseR + 1.6, 0, Math.PI * 2); heatCX.fill();
-    if (ev.kind === 'entry') {
-      heatCX.globalAlpha = 0.95;
-      heatCX.fillStyle = color;
-      heatCX.beginPath(); heatCX.arc(x, y, baseR, 0, Math.PI * 2); heatCX.fill();
-    } else {
-      // Apex marker: ring rather than solid
-      heatCX.globalAlpha = 0.85;
-      heatCX.strokeStyle = color;
-      heatCX.lineWidth = 1.4;
-      heatCX.beginPath(); heatCX.arc(x, y, baseR, 0, Math.PI * 2); heatCX.stroke();
-    }
-  }
-  heatCX.restore();
-}
+// Wall-touch dots (v0.8.3 added, v0.8.5 rewritten, v0.8.6 removed).
+// User feedback: too noisy regardless of implementation; the level
+// lines + sparse setup-fire annotations already convey what's needed.
 
 // ── Render: setup toast (top-right corner of chart) ────────────────────
 function renderToast() {
@@ -3743,7 +3608,6 @@ function _renderNow() {
   renderProfile();
   if (typeof renderAnnotations === 'function') renderAnnotations();
   if (typeof renderLevelLines  === 'function') renderLevelLines();
-  if (typeof renderWallTouches === 'function') renderWallTouches();
   if (typeof renderReplayBar   === 'function') renderReplayBar();
   if (typeof renderToast       === 'function') renderToast();
 }

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.6] — Remove wall-touch dots entirely
+
+User feedback after the v0.8.5 rewrite: the wall-touch concept is just
+noise. The level lines + sparse setup-fire annotations already convey
+what's needed; the extra dots cluttered the chart without adding
+information. Reverted entirely.
+
+### Removed
+- `renderWallTouches()` — function and call site
+- Wall-touch documentation in the help overlay
+
+### Kept (unchanged)
+- Persistent level lines with `★ tier · strike · holdMin` left-edge labels
+- Setup-fire annotations (rejection / breakout) with directional ↑/↓ arrows
+  (v0.8.4)
+- Setup log panel showing the full fire history (v0.8.4)
+- ★ tier filter (gates level lines + alert emissions)
+- ★ rate density badge
+
+The ★ tier filter description and dropdown tooltip updated to match —
+no longer references the removed wall-touch layer.
+
 ## [0.8.5] — Wall-touch dots rewritten (entries + apexes, not every snap)
 
 ### Fixed regression
