@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.8.3] — ★ tier filter is fully visual + wall-touch indicator dots
+
+### Fixed UX gap
+The ★ tier filter (v0.8.1) only gated setup fires (annotations / toast /
+chirp). On a quiet session with no fires, toggling the dropdown
+produced zero visible effect — exposing a bad UX assumption that "you'd
+see it work eventually." On a slow day, "selective" looks identical to
+"broken."
+
+### Changed
+- **Tier filter now also gates level lines.** `★★★` → only the day's
+  ≥30-min walls draw their dashed horizontal + label. `★★+` → ≥15-min.
+  `★+` → all sticky walls. Toggling the dropdown is now immediately
+  visual.
+- The dropdown change handler also calls `render()` so the chart
+  refreshes when the tier changes.
+
+### Added — wall-touch dots
+A new continuous-feedback indicator overlaid on the spot trace. At
+every snapshot where spot was within ±0.08% of a sticky wall passing
+the ★ tier filter, a small colored dot is drawn at (snap.ts, spot).
+Color matches the wall's tier (orange ★★★, yellow ★★, blue ★). Halo
++ solid core for readability on both themes.
+
+This sits between "level line shown" (mostly static) and "setup fire"
+(rare) — gives many more visible "the system noticed something"
+events without committing to a full setup-fire alert. Particularly
+useful on quiet days where setup fires are sparse.
+
+Lives in absolute price mode only (offset modes don't have a single
+spot location to anchor a dot to). Render gate respects the AUTO ★
+on/off toggle and the ★ tier filter.
+
 ## [0.8.2] — Demote CUSUM, SVG visualizer for setup-composer replays
 
 ### Changed — CUSUM demoted to Legacy

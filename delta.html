@@ -835,6 +835,9 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>Toast notifications</dt>
       <dd>A floating panel in the top-right of the chart shows the last few setups with timestamp, spot, hold-time, and confidence stars. Click a row to scroll the chart to that snapshot.</dd>
     </dl>
+    <h3>Wall-touch dots <span style="color:#9aa">— added v0.8.3</span></h3>
+    <p>Continuous visual feedback that the system is "watching": a small colored dot is overlaid on the spot trace at every snapshot where spot was within ±0.08% of a sticky wall passing the ★ tier filter. Color matches the wall's tier (orange ★★★, yellow ★★, blue ★). Helps you SEE the system noticing a wall test even when the full setup conditions don't align — far more frequent feedback than the rare setup fires.</p>
+
     <h3>Two setup types</h3>
     <dl>
       <dt>Rejection</dt>
@@ -850,7 +853,13 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor, 15m cooldown. Fewer setups, higher conviction.</dd>
     </dl>
     <h3>★ tier filter</h3>
-    <p>Independent of sensitivity. Sets the minimum wall hold-time tier for emitting annotations / toasts / chirps. Level lines still render at all tiers regardless — the filter only gates the alert layer.</p>
+    <p>Independent of sensitivity. Sets the minimum wall hold-time tier for three things at once (changed in v0.8.3 — previously only the alert layer):</p>
+    <ol>
+      <li>Which sticky-level lines render on the chart</li>
+      <li>Which walls trigger wall-touch dots when spot approaches</li>
+      <li>Which setups can emit annotations / toast / chirp</li>
+    </ol>
+    <p>Visually toggling the dropdown should now produce immediate change — sticky-level lines appear / disappear, wall-touch dots gain / lose density, and the <code>★ rate</code> in the stats bar adjusts.</p>
     <dl>
       <dt>★★★ <span style="color:#9aa">— default</span></dt><dd>Only walls with ≥30 minutes of session hold time fire alerts. The most selective; highly likely to be a real key level for the day.</dd>
       <dt>★★+</dt><dd>Walls with ≥15 minutes of hold. Includes some emerging structure, more fires.</dd>
@@ -3419,6 +3428,10 @@ function renderLevelLines() {
   const levels = LIVE_SIGNALS.topLevels(8, ci, 60);
   if (!levels.length) return;
   const sp = snapshots[ci].meta.spot || 0;
+  // v0.8.3: tier filter also gates the level LINES (not just fires) so the
+  // dropdown gives immediate visual feedback. ★★★ → only ≥30m walls drawn,
+  // ★★+ → ≥15m, ★+ → all. Visible side effect of changing the dropdown.
+  const minTier = autoMinTier();
 
   heatCX.save();
   heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3429,6 +3442,8 @@ function renderLevelLines() {
     if (y < 4 || y > drawH - 4) continue;
 
     const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
+    if (stars < minTier) continue;          // tier filter
+
     const stale = lv.staleSnaps > 300;     // 5 min decay
     const baseColor = stars === 3 ? '#ff8840'
                     : stars === 2 ? '#ffd830'
@@ -3451,6 +3466,71 @@ function renderLevelLines() {
     const minutes = Math.round(lv.holdSnaps / 60);
     const starStr = '★'.repeat(stars) + '☆'.repeat(3 - stars);
     heatCX.fillText(`${starStr} ${lv.strike} · ${minutes}m`, m.effPAX + 4, y - 3);
+  }
+  heatCX.restore();
+}
+
+// v0.8.3: Wall-touch indicator. Drops a small dot on the spot trace at every
+// snapshot where spot is within ±NEAR_PCT of a sticky wall passing the ★
+// tier filter. Continuous visual feedback that the system is "watching"
+// even when no setup composer fire actually happens. The dot color matches
+// the wall's tier color (orange ★★★ / yellow ★★ / blue ★).
+function renderWallTouches() {
+  if (!autoLabelsEnabled()) return;
+  if (!snapshots.length) return;
+  if (yMode() !== 'abs') return;          // touches only render in absolute price mode
+  const NEAR_PCT = 0.0008;                // slightly looser than detection (0.0006) so user sees touches before fires
+
+  const minTier = autoMinTier();
+  const ci = snapshots.length - 1;
+  const levels = LIVE_SIGNALS.topLevels(8, ci, 60);
+  if (!levels.length) return;
+  const stickyWalls = [];
+  for (const lv of levels) {
+    const stars = lv.holdSnaps >= 1800 ? 3 : lv.holdSnaps >= 900 ? 2 : 1;
+    if (stars < minTier) continue;
+    stickyWalls.push({ strike: lv.strike, stars });
+  }
+  if (!stickyWalls.length) return;
+
+  const W = heatCV.clientWidth, H = heatCV.clientHeight;
+  const m = renderMetrics();
+
+  heatCX.save();
+  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Walk the visible source range, mark every snap whose spot is near a sticky wall.
+  for (let k = 0; k < m.nCols; k++) {
+    const binStart = m.startI + k * m.binSize;
+    if (binStart >= m.endI) break;
+    // Use the bin's representative source ci (last in bin)
+    const repCi = Math.min(m.endI - 1, binStart + m.binSize - 1);
+    const sp = snapshots[repCi].meta.spot || 0;
+    if (!(sp > 0)) continue;
+    if (sp < yDomain.min || sp > yDomain.max) continue;
+
+    let nearestWall = null, nearestDistPct = Infinity;
+    for (const w of stickyWalls) {
+      const distPct = Math.abs(sp - w.strike) / sp;
+      if (distPct <= NEAR_PCT && distPct < nearestDistPct) {
+        nearestDistPct = distPct; nearestWall = w;
+      }
+    }
+    if (!nearestWall) continue;
+
+    const x = m.effPAX + k * m.effColW + m.effColW / 2;
+    const y = yToPx(sp, H);
+    const r = nearestWall.stars === 3 ? 2.4 : nearestWall.stars === 2 ? 1.9 : 1.5;
+    const color = nearestWall.stars === 3 ? '#ff8840'
+                : nearestWall.stars === 2 ? '#ffd830'
+                : '#a0d8ff';
+    // Faint halo + solid core so dots stay readable on light + dark themes.
+    heatCX.globalAlpha = 0.30;
+    heatCX.fillStyle = color;
+    heatCX.beginPath(); heatCX.arc(x, y, r + 1.2, 0, Math.PI * 2); heatCX.fill();
+    heatCX.globalAlpha = 0.95;
+    heatCX.fillStyle = color;
+    heatCX.beginPath(); heatCX.arc(x, y, r, 0, Math.PI * 2); heatCX.fill();
   }
   heatCX.restore();
 }
@@ -3501,6 +3581,7 @@ function _renderNow() {
   renderProfile();
   if (typeof renderAnnotations === 'function') renderAnnotations();
   if (typeof renderLevelLines  === 'function') renderLevelLines();
+  if (typeof renderWallTouches === 'function') renderWallTouches();
   if (typeof renderReplayBar   === 'function') renderReplayBar();
   if (typeof renderToast       === 'function') renderToast();
 }
@@ -4170,9 +4251,10 @@ document.getElementById('sAutoSens').addEventListener('change', (e) => {
   }
 });
 document.getElementById('sAutoTier').addEventListener('change', () => {
-  // Tier filter affects toast/annotation gating + density badge readout.
-  // Refresh density immediately on change.
+  // Tier filter affects toast/annotation gating + density badge readout +
+  // (v0.8.3) the level lines and wall-touch indicator. Refresh both.
   if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
+  render();
 });
 
 // ═══════════════════════════════════════════════════════
