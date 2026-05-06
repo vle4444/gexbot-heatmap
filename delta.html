@@ -893,8 +893,15 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>Toast notifications</dt>
       <dd>A floating panel in the top-right of the chart shows the last few setups with timestamp, spot, hold-time, and confidence stars. Click a row to scroll the chart to that snapshot.</dd>
     </dl>
-    <h3>Wall-touch dots <span style="color:#9aa">— added v0.8.3</span></h3>
-    <p>Continuous visual feedback that the system is "watching": a small colored dot is overlaid on the spot trace at every snapshot where spot was within ±0.08% of a sticky wall passing the ★ tier filter. Color matches the wall's tier (orange ★★★, yellow ★★, blue ★). Helps you SEE the system noticing a wall test even when the full setup conditions don't align — far more frequent feedback than the rare setup fires.</p>
+    <h3>Wall-touch dots <span style="color:#9aa">— v0.8.3, rewritten v0.8.5</span></h3>
+    <p>Marks moments when spot enters a near-wall zone (±0.08% of a sticky wall passing the ★ tier filter). Two glyph styles:</p>
+    <dl>
+      <dt>Solid filled dot</dt>
+      <dd>Spot just <b>entered</b> the wall's near-zone. One per entry; per-wall re-entry gap of 60s prevents micro-oscillations from spamming.</dd>
+      <dt>Hollow ring</dt>
+      <dd>Spot's <b>deepest approach</b> within the current zone (closer to the wall than the entry point). Only emitted if spot kept getting closer after entry — so a brief touch produces just the entry dot; a sustained test produces entry + ring.</dd>
+    </dl>
+    <p>Color matches the wall's tier (orange ★★★, yellow ★★, blue ★). v0.8.3 emitted one dot per snapshot, which flooded the trace when spot stayed near a wall for 30+ minutes — v0.8.5 fixes that by only marking transitions and apexes.</p>
 
     <h3>Two setup types</h3>
     <dl>
@@ -3561,16 +3568,23 @@ function renderLevelLines() {
   heatCX.restore();
 }
 
-// v0.8.3: Wall-touch indicator. Drops a small dot on the spot trace at every
-// snapshot where spot is within ±NEAR_PCT of a sticky wall passing the ★
-// tier filter. Continuous visual feedback that the system is "watching"
-// even when no setup composer fire actually happens. The dot color matches
-// the wall's tier color (orange ★★★ / yellow ★★ / blue ★).
+// v0.8.5: Wall-touch indicator (rewritten). v0.8.3 emitted a dot every
+// snapshot where spot was within range — that produced a flood when spot
+// chopped near a wall for 30+ minutes (legitimate scenario, ugly result).
+//
+// New behavior: one dot per "entry" into a near-wall zone, plus a small
+// dot at the deepest-approach point if spot stayed in the zone for a
+// while. This way: brief touch → 1 dot. Sustained test → 2 dots (entry
+// + closest approach). Continuous chop near a wall doesn't spam.
+//
+// Min re-entry gap: 60s for the same wall — prevents micro-oscillations
+// at the band boundary from emitting repeated dots.
 function renderWallTouches() {
   if (!autoLabelsEnabled()) return;
   if (!snapshots.length) return;
-  if (yMode() !== 'abs') return;          // touches only render in absolute price mode
-  const NEAR_PCT = 0.0008;                // slightly looser than detection (0.0006) so user sees touches before fires
+  if (yMode() !== 'abs') return;
+  const NEAR_PCT = 0.0008;
+  const REENTRY_GAP_SEC = 60;
 
   const minTier = autoMinTier();
   const ci = snapshots.length - 1;
@@ -3587,41 +3601,97 @@ function renderWallTouches() {
   const W = heatCV.clientWidth, H = heatCV.clientHeight;
   const m = renderMetrics();
 
-  heatCX.save();
-  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // First pass: build event list (entry points + deepest-approach points)
+  // walking the FULL visible source range in source-snap units (binSize
+  // doesn't apply here — we want fine-grained transition detection).
+  const events = [];                // {ci, wall, distPct, kind: 'entry'|'apex'}
+  let inZone = null;                // currently-tracked wall (object) or null
+  let deepest = null;               // {ci, distPct, wall} during current zone
+  let lastDotPerWall = new Map();   // strike → ts of last emitted dot
+  const sourceStart = m.startI, sourceEnd = m.endI;
 
-  // Walk the visible source range, mark every snap whose spot is near a sticky wall.
-  for (let k = 0; k < m.nCols; k++) {
-    const binStart = m.startI + k * m.binSize;
-    if (binStart >= m.endI) break;
-    // Use the bin's representative source ci (last in bin)
-    const repCi = Math.min(m.endI - 1, binStart + m.binSize - 1);
-    const sp = snapshots[repCi].meta.spot || 0;
+  for (let i = sourceStart; i < sourceEnd; i++) {
+    const snap = snapshots[i];
+    const sp = snap.meta.spot;
     if (!(sp > 0)) continue;
-    if (sp < yDomain.min || sp > yDomain.max) continue;
 
-    let nearestWall = null, nearestDistPct = Infinity;
+    let curWall = null, curDistPct = Infinity;
     for (const w of stickyWalls) {
-      const distPct = Math.abs(sp - w.strike) / sp;
-      if (distPct <= NEAR_PCT && distPct < nearestDistPct) {
-        nearestDistPct = distPct; nearestWall = w;
+      const d = Math.abs(sp - w.strike) / sp;
+      if (d <= NEAR_PCT && d < curDistPct) {
+        curWall = w; curDistPct = d;
       }
     }
-    if (!nearestWall) continue;
 
+    const inZoneStrike = inZone ? inZone.strike : null;
+    const curStrike    = curWall ? curWall.strike : null;
+
+    if (curStrike !== inZoneStrike) {
+      // Transition. If we were inside a zone, finalize "apex" if it's
+      // distinctly deeper than the entry (i.e., spot moved closer mid-touch).
+      if (inZone && deepest) {
+        const entryEvt = events[events.length - 1];
+        if (entryEvt && entryEvt.ci !== deepest.ci) {
+          events.push({ ci: deepest.ci, wall: deepest.wall, distPct: deepest.distPct, kind: 'apex' });
+        }
+      }
+      // If we just entered a (different) zone, emit entry event respecting
+      // the per-wall re-entry gap.
+      if (curWall) {
+        const last = lastDotPerWall.get(curStrike) || -Infinity;
+        if (snap.ts - last >= REENTRY_GAP_SEC * 1000) {
+          events.push({ ci: i, wall: curWall, distPct: curDistPct, kind: 'entry' });
+          lastDotPerWall.set(curStrike, snap.ts);
+        }
+        deepest = { ci: i, wall: curWall, distPct: curDistPct };
+      } else {
+        deepest = null;
+      }
+      inZone = curWall;
+    } else if (inZone) {
+      // Still in same zone — track deepest approach.
+      if (curDistPct < deepest.distPct) deepest = { ci: i, wall: curWall, distPct: curDistPct };
+    }
+  }
+  // Tail: if we ended still in a zone, emit final apex if deeper than entry
+  if (inZone && deepest) {
+    const entryEvt = events[events.length - 1];
+    if (entryEvt && entryEvt.ci !== deepest.ci && entryEvt.kind === 'entry' && entryEvt.wall.strike === deepest.wall.strike) {
+      events.push({ ci: deepest.ci, wall: deepest.wall, distPct: deepest.distPct, kind: 'apex' });
+    }
+  }
+
+  if (!events.length) return;
+
+  heatCX.save();
+  heatCX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const ev of events) {
+    const snap = snapshots[ev.ci];
+    const sp = snap.meta.spot;
+    if (!(sp >= yDomain.min && sp <= yDomain.max)) continue;
+    // Map source ci to output column k
+    const k = Math.floor((ev.ci - m.startI) / m.binSize);
+    if (k < 0 || k >= m.nCols) continue;
     const x = m.effPAX + k * m.effColW + m.effColW / 2;
     const y = yToPx(sp, H);
-    const r = nearestWall.stars === 3 ? 2.4 : nearestWall.stars === 2 ? 1.9 : 1.5;
-    const color = nearestWall.stars === 3 ? '#ff8840'
-                : nearestWall.stars === 2 ? '#ffd830'
-                : '#a0d8ff';
-    // Faint halo + solid core so dots stay readable on light + dark themes.
-    heatCX.globalAlpha = 0.30;
+    const stars = ev.wall.stars;
+    const baseR = stars === 3 ? 3.2 : stars === 2 ? 2.6 : 2.0;
+    // Apex = slightly smaller, hollow ring; entry = solid filled
+    const color = stars === 3 ? '#ff8840' : stars === 2 ? '#ffd830' : '#a0d8ff';
+    heatCX.globalAlpha = 0.32;
     heatCX.fillStyle = color;
-    heatCX.beginPath(); heatCX.arc(x, y, r + 1.2, 0, Math.PI * 2); heatCX.fill();
-    heatCX.globalAlpha = 0.95;
-    heatCX.fillStyle = color;
-    heatCX.beginPath(); heatCX.arc(x, y, r, 0, Math.PI * 2); heatCX.fill();
+    heatCX.beginPath(); heatCX.arc(x, y, baseR + 1.6, 0, Math.PI * 2); heatCX.fill();
+    if (ev.kind === 'entry') {
+      heatCX.globalAlpha = 0.95;
+      heatCX.fillStyle = color;
+      heatCX.beginPath(); heatCX.arc(x, y, baseR, 0, Math.PI * 2); heatCX.fill();
+    } else {
+      // Apex marker: ring rather than solid
+      heatCX.globalAlpha = 0.85;
+      heatCX.strokeStyle = color;
+      heatCX.lineWidth = 1.4;
+      heatCX.beginPath(); heatCX.arc(x, y, baseR, 0, Math.PI * 2); heatCX.stroke();
+    }
   }
   heatCX.restore();
 }

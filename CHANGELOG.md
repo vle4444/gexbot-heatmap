@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.8.5] — Wall-touch dots rewritten (entries + apexes, not every snap)
+
+### Fixed regression
+v0.8.3 emitted a wall-touch dot for every single snapshot where spot
+was within ±0.08% of a sticky wall. On a session where spot chops near
+a wall for 30+ minutes (which is the *normal* behavior of a sticky
+wall — that's why it's sticky), this produced a flood of orange dots
+covering the entire spot trace. User-reported regression.
+
+### New behavior
+Walks the visible source range and tracks zone state — only emits dots
+on **transitions**:
+
+- **Solid filled dot** — spot just *entered* a wall's near-zone. One
+  per entry. Per-wall re-entry gap of 60s suppresses micro-oscillations
+  at the band boundary.
+- **Hollow ring** — *deepest approach* within the current zone, if
+  spot kept getting closer after entry. So a brief touch = 1 entry dot,
+  a sustained test = entry dot + ring at the closest point.
+
+Net effect: a 50-minute touch of a wall now produces ~2 dots
+(entry + apex) instead of ~3000. Brief touches still get a clear
+single-dot mark.
+
+Color and tier semantics unchanged (orange ★★★ / yellow ★★ / blue ★;
+gated by ★ tier filter; absolute price mode only).
+
 ## [0.8.4] — Disambiguate rejection direction + setup log panel
 
 ### Fixed — `reject 7335` was ambiguous
