@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.8.2] — Demote CUSUM, SVG visualizer for setup-composer replays
+
+### Changed — CUSUM demoted to Legacy
+The six CUSUM presets are moved from the dedicated "Persistence" group
+to a new "Legacy (CUSUM — fires constantly, low lift)" group at the
+*bottom* of the MaxCh dropdown. Empirical analysis showed every
+preset firing 83-99% of snapshots (lift ≈ 1.0 vs random) — i.e.,
+always-on, no actual signal. Pulse (kept on top of the dropdown) is
+the recommended detector for both quick events and persistent activity.
+
+The presets remain available for niche cases where you specifically
+want the "where is sustained flow building" view, but they are no
+longer presented as competitive with Pulse. Each entry is now
+prefixed `cusum ` in the dropdown to make the family explicit.
+Help overlay rewritten with the empirical context.
+
+### Added — SVG visualizer in `analyze-recording.js`
+Each report run now produces three SVG files (one per sensitivity)
+alongside the markdown report. Each SVG shows:
+
+- **Spot price line** (cyan) over the full session timeline
+- **Sticky levels** (top 6 by hold-time) as faint dashed horizontal
+  references with left-edge `★ tier · strike · holdMin` labels
+- **User events** as red dashed verticals with labels
+- **Sweep candidates** as small gray ticks at the bottom
+- **Setup composer fires** as colored circles (orange = rejection,
+  blue = breakout), size scales with ★ tier, hover shows full
+  metadata (time, spot, regime, velocity, hold, Pulse mag)
+- **Right-side legend** with fire counts per tier
+
+SVG is self-contained — open the file directly in any browser; no
+deps. Per-element `<title>` attributes give native hover tooltips.
+Use case: a quick "where on the day did the system fire vs my known
+events" visual review without booting the dashboard.
+
+Output paths follow the markdown report's basename: e.g.
+`analysis-2026-05-05.md` produces
+`analysis-2026-05-05-{high,med,low}.svg`.
+
 ## [0.8.1] — AUTO ★ tuning: ★ tier filter, longer cooldowns, live fire-density readout
 
 After running v0.8.0 retrospectively against the 2026-05-05 SPX session

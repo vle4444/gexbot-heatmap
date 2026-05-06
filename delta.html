@@ -496,25 +496,25 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) fires fast on quick + strong changes — recommended default. CUSUM (persistence) fires slow on sustained multi-bucket flow. Event detectors (burst / swarm / pump) flag sudden coordinated activity.">
+    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) fires fast on quick + strong changes — recommended default. Event detectors (burst / swarm / pump) flag sudden coordinated activity. CUSUM is demoted to Legacy as of v0.8.2 — empirical lift in production was ~1.0 (always-on, no signal).">
       <option value="off">off</option>
       <optgroup label="Pulse — per-strike z-score (fast + strong)">
         <option value="pulse_fast">fast (low threshold, short hold)</option>
         <option value="pulse_normal" selected>normal</option>
         <option value="pulse_strict">strict (high threshold, long hold)</option>
       </optgroup>
-      <optgroup label="Persistence — CUSUM + hysteresis (sustained flow)">
-        <option value="loose">loose</option>
-        <option value="normal">normal</option>
-        <option value="strict">strict</option>
-        <option value="tight">tight</option>
-        <option value="severe">severe</option>
-        <option value="extreme">extreme</option>
-      </optgroup>
       <optgroup label="Event detectors">
         <option value="burst">burst</option>
         <option value="swarm">swarm</option>
         <option value="pump">pump</option>
+      </optgroup>
+      <optgroup label="Legacy (CUSUM — fires constantly, low lift)">
+        <option value="loose">cusum loose</option>
+        <option value="normal">cusum normal</option>
+        <option value="strict">cusum strict</option>
+        <option value="tight">cusum tight</option>
+        <option value="severe">cusum severe</option>
+        <option value="extreme">cusum extreme</option>
       </optgroup>
     </select>
   </div>
@@ -871,15 +871,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     </dl>
     <p>Pulse is <b>magnitude-aware</b>: a strike that wins one bucket with a huge value will fire, where CUSUM (below) would filter it as "not persistent." This is the right detector for spotting fresh walls forming, sharp wall flips, and similar quick events.</p>
 
-    <h3>Persistence — CUSUM + hysteresis (sustained slow flow)</h3>
-    <p>Per-strike signed CUSUM (Page 1954) counts <i>bucket wins</i> with reference-value decay; hysteresis (Schmitt 1938) debounces display. By design <b>filters out fast events</b> in favor of multi-second sustained dominance. Use when you want to see "where is flow building over time" rather than "what just happened."</p>
+    <h3>Legacy: CUSUM + hysteresis (demoted in v0.8.2)</h3>
+    <div class="warn">CUSUM is demoted to a "Legacy" group at the bottom of the dropdown. Empirical analysis of recorded sessions showed every preset (loose → extreme) firing 83-99% of snapshots — i.e., always on, with lift ≈ 1.0 vs random. By design CUSUM counts <i>bucket wins</i>, not magnitudes, so it filters out fast events in favor of multi-second sustained dominance — but in practice, sustained dominance is the steady state of /maxchange, not the exception. Pulse (above) is the recommended default for both quick events and persistent activity.</div>
+    <p>The presets remain available for niche cases where you specifically want the persistent-flow view. Per-strike signed CUSUM (Page 1954) with hysteresis (Schmitt 1938).</p>
     <dl>
-      <dt>loose</dt><dd>Fast trigger for CUSUM, more events. Use in quiet markets. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=4, h<sub>low</sub>=2)</span></dd>
-      <dt>normal</dt><dd>Balanced CUSUM persistence. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=6, h<sub>low</sub>=3)</span></dd>
-      <dt>strict</dt><dd>Strongest sustained events only. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)</span></dd>
-      <dt>tight</dt><dd>~1.5× <code>strict</code>. <span style="color:#9aa">(k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8)</span></dd>
-      <dt>severe</dt><dd>Both knobs raised. Lone-bucket prints decay faster than they accumulate. <span style="color:#9aa">(k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11)</span></dd>
-      <dt>extreme</dt><dd>Only the most persistent multi-bucket events. <span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
+      <dt>cusum loose</dt><dd><span style="color:#9aa">(k=1.5, h<sub>high</sub>=4, h<sub>low</sub>=2)</span></dd>
+      <dt>cusum normal</dt><dd><span style="color:#9aa">(k=1.5, h<sub>high</sub>=6, h<sub>low</sub>=3)</span></dd>
+      <dt>cusum strict</dt><dd><span style="color:#9aa">(k=1.5, h<sub>high</sub>=10, h<sub>low</sub>=5)</span></dd>
+      <dt>cusum tight</dt><dd><span style="color:#9aa">(k=1.5, h<sub>high</sub>=15, h<sub>low</sub>=8)</span></dd>
+      <dt>cusum severe</dt><dd><span style="color:#9aa">(k=2.0, h<sub>high</sub>=22, h<sub>low</sub>=11)</span></dd>
+      <dt>cusum extreme</dt><dd><span style="color:#9aa">(k=2.5, h<sub>high</sub>=35, h<sub>low</sub>=18)</span></dd>
     </dl>
 
     <h3>Event detectors — burst / swarm / pump</h3>
