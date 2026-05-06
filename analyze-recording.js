@@ -460,10 +460,12 @@ function computeWallProximity(snaps, windowSec = 60) {
 // existed when the buffer was being recorded. Output: chronological array of
 // fires with type / strike / spot / regime / confidence / hold-time / vel.
 // ─────────────────────────────────────────────────────────────────────────────
+// v0.8.1: cooldowns bumped (high 180→360, med 240→600, low 360→900) after the
+// 2026-05-05 retrospective showed too many repeat fires on a single wall test.
 const SETUP_SENSITIVITY = {
-  high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 180 },
-  med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 240 },
-  low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 360 },
+  high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 360 },
+  med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 600 },
+  low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 900 },
 };
 const SETUP_PULSE_CFG = { ema: 20, zFire: 2.0, zKeep: 0.7, hold: 5, minSigmaPct: 0.02, minSamples: 5 };
 
@@ -1071,6 +1073,29 @@ function main() {
     lines.push('');
     const strikeList = [...byStrike.entries()].sort((a, b) => b[1] - a[1]);
     lines.push(`**Most-fired strikes:** ${strikeList.slice(0, 6).map(([k, n]) => `${k} (${n})`).join(', ')}`);
+    lines.push('');
+
+    // ★ tier projection — what the AUTO ★ tier filter would show at each setting.
+    // Mirrors the dashboard's autoMinTier dropdown (1, 2, 3).
+    const sessionHours = (snaps[snaps.length - 1].ts - snaps[0].ts) / 1000 / 3600;
+    let t1 = 0, t2 = 0, t3 = 0;
+    let t1Hits = 0, t2Hits = 0, t3Hits = 0;
+    for (const f of fires) {
+      if (f.confidence >= 1) t1++;
+      if (f.confidence >= 2) t2++;
+      if (f.confidence >= 3) t3++;
+      const nu = leadToNext(f.ci, eventCis);
+      if (nu && nu.lead <= 600) {
+        if (f.confidence >= 1) t1Hits++;
+        if (f.confidence >= 2) t2Hits++;
+        if (f.confidence >= 3) t3Hits++;
+      }
+    }
+    lines.push('| ★ tier filter | fires | per hour | within 10m of user event |');
+    lines.push('|---|---|---|---|');
+    lines.push(`| ★+ (all) | ${t1} | ${(t1 / sessionHours).toFixed(1)} | ${t1Hits}/${t1} |`);
+    lines.push(`| ★★+ | ${t2} | ${(t2 / sessionHours).toFixed(1)} | ${t2Hits}/${t2} |`);
+    lines.push(`| ★★★ <span style="color:#9aa">— v0.8.1 default</span> | ${t3} | ${(t3 / sessionHours).toFixed(1)} | ${t3Hits}/${t3} |`);
     lines.push('');
   }
 
