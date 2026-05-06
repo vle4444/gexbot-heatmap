@@ -171,6 +171,54 @@ canvas#heat { display: block; width: 100%; height: 100%; cursor: crosshair; }
 .toast-type { color: var(--text); font-weight: 600; font-family: var(--mono); }
 .toast-meta { color: var(--label); font-size: 11px; margin-left: auto; }
 
+/* ── Setup log panel ─────────────────────────────────────────────── */
+#setup-log {
+  position: absolute; top: 8px; right: 12px; z-index: 12;
+  display: none; flex-direction: column;
+  width: 480px; max-height: 70vh;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+#setup-log.on { display: flex; }
+.log-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.log-title { color: var(--text); font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.log-meta  { color: var(--label); font-size: 12px; flex: 1; font-family: var(--mono); }
+.log-close {
+  background: transparent; border: none; color: var(--label);
+  font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.log-close:hover { color: var(--text); }
+.log-rows {
+  flex: 1; overflow-y: auto; padding: 4px 0;
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.log-row {
+  display: grid; grid-template-columns: 70px 70px 60px 36px 60px 60px 1fr;
+  gap: 6px; padding: 4px 12px; cursor: pointer; align-items: baseline;
+  border-bottom: 1px solid rgba(128,128,128,0.08);
+}
+.log-row:hover { background: rgba(48,144,208,0.10); }
+.log-row.below-tier { opacity: 0.45; }
+.log-row.rejection .log-arrow { color: var(--tag); }
+.log-row.breakout  .log-arrow { color: var(--accent); }
+.log-row .log-time   { color: var(--label); }
+.log-row .log-stars  { color: var(--yellow); }
+.log-row .log-strike { color: var(--text); font-weight: 600; }
+.log-row .log-arrow  { font-weight: 700; text-align: center; }
+.log-row .log-spot   { color: var(--spot); }
+.log-row .log-vel    { color: var(--label); font-size: 11px; }
+.log-row .log-tail   { color: var(--label); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-footer {
+  padding: 6px 12px; border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--label); font-family: var(--font);
+  background: var(--bg);
+}
+
 /* ── Auto-labels toggle group ─────────────────────────────────────── */
 .auto-chirp {
   display: inline-flex; align-items: center; gap: 3px;
@@ -558,11 +606,12 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <option value="med" selected>med</option>
       <option value="low">low</option>
     </select>
-    <select id="sAutoTier" title="Minimum confidence tier for annotations + toast. Level lines still render at all tiers regardless. ★★★ = walls with ≥30min hold; ★★+ = ≥15min; ★+ = ≥5min (most fires).">
+    <select id="sAutoTier" title="Minimum tier for level lines, wall-touch dots, annotations, and toasts. ★★★ = walls with ≥30min hold; ★★+ = ≥15min; ★+ = ≥5min (most fires).">
       <option value="3" selected>★★★</option>
       <option value="2">★★+</option>
       <option value="1">★+</option>
     </select>
+    <button class="btn" id="btnSetupLog" title="Show full setup-fire log (last 50, including those filtered out by ★ tier)">LOG</button>
     <label class="auto-chirp" title="Play a brief tone when a setup fires"><input type="checkbox" id="chkChirp"> 🔊</label>
   </div>
   <button class="btn" id="btnHelp" title="Control reference">? HELP</button>
@@ -590,6 +639,15 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <div id="crosshair"><div class="cx-v"></div><div class="cx-h"></div></div>
     <div id="tooltip"></div>
     <div id="setup-toast" title="Recent setup fires. Click a row to scroll the chart to that snapshot."></div>
+    <div id="setup-log">
+      <div class="log-header">
+        <span class="log-title">Setup log</span>
+        <span class="log-meta" id="setup-log-meta">—</span>
+        <button class="log-close" id="btnSetupLogClose" title="Close">×</button>
+      </div>
+      <div class="log-rows" id="setup-log-rows"></div>
+      <div class="log-footer">Click a row to scroll the chart there. Greyed rows were filtered out by the ★ tier setting at fire time.</div>
+    </div>
     <div id="loading"><div class="ring"></div>CONNECTING…</div>
     <div id="err">
       <div class="etitle">⚠ API ERROR</div>
@@ -845,6 +903,19 @@ canvas#prof { display: block; width: 100%; height: 100%; }
       <dt>Breakout</dt>
       <dd>Spot just <i>crossed</i> a sticky wall, velocity is sustained in the breakout direction, Pulse fired near the wall, and the regime is <b>Short γ</b> (or transitional). Expectation: dealers chase → continuation through the level. Default color: blue.</dd>
     </dl>
+    <h3>Arrow convention <span style="color:#9aa">— v0.8.4</span></h3>
+    <p>Both rejection and breakout labels now show <b>↑</b> or <b>↓</b> indicating where price is expected to GO after the event. Rejection arrow disambiguated by spot's position relative to the wall:</p>
+    <dl>
+      <dt><code>reject 7335 ↓</code></dt>
+      <dd>Spot was <b>below</b> 7335 (wall acted as resistance) → rejection means price expected to fall back DOWN. Bearish.</dd>
+      <dt><code>reject 7335 ↑</code></dt>
+      <dd>Spot was <b>above</b> 7335 (wall acted as support) → rejection means price expected to bounce back UP. Bullish.</dd>
+      <dt><code>break 7270 ↑</code></dt>
+      <dd>Spot crossed 7270 going up; expected continuation upward.</dd>
+    </dl>
+
+    <h3>Setup log (LOG button)</h3>
+    <p>Opens a panel showing the last 50 setup fires in memory, including those filtered out by the current ★ tier (those rows are greyed). Each row: time, type, strike, arrow, spot at fire, velocity, hold-time, regime, Pulse magnitude. Click a row to scroll the chart to that snapshot. Auto-updates as new fires arrive while the panel is open.</p>
     <p><b>Cooldown</b>: per (type, strike) the same setup can't refire for 3-6 minutes (sensitivity-dependent). Prevents the same wall test from spamming the toast on every snapshot.</p>
     <h3>Sensitivity</h3>
     <dl>
@@ -1265,6 +1336,12 @@ function ingest(data, greek, mcData) {
     const fires = LIVE_SIGNALS.ingest(ci, snap, snapshots);
     if (fires && fires.length) {
       for (const f of fires) onSetupFire(f);
+      // Refresh setup log panel if open (regardless of tier filter — log
+      // shows all fires, dimming those below the current filter).
+      const logEl = document.getElementById('setup-log');
+      if (logEl && logEl.classList.contains('on') && typeof populateSetupLog === 'function') {
+        populateSetupLog();
+      }
     }
   }
 
@@ -3378,6 +3455,20 @@ function chirp(setup) {
   } catch (e) { /* WebAudio unsupported or blocked — silent */ }
 }
 
+// Setup arrow convention (used in labels, toast rows, log entries):
+//   ↑ = expected / observed UP move
+//   ↓ = expected / observed DOWN move
+// For breakout: arrow = direction price is moving (the breakout direction).
+// For rejection (v0.8.4): arrow = direction price is expected to GO after
+// rejecting the wall.
+//   spot < wall → wall is resistance → reject = bounce back DOWN → ↓ (bearish)
+//   spot > wall → wall is support    → reject = bounce back UP   → ↑ (bullish)
+function setupArrow(setup) {
+  if (setup.type === 'breakout') return setup.dir > 0 ? '↑' : '↓';
+  // rejection
+  return setup.spot < setup.strike ? '↓' : '↑';
+}
+
 async function onSetupFire(setup) {
   if (!autoLabelsEnabled()) return;
   // Tier filter — only emit annotations / toast / chirp when the setup
@@ -3391,9 +3482,9 @@ async function onSetupFire(setup) {
   chirp(setup);
   // Auto-annotation (uses existing annotation IDB store with auto: true)
   const stars = '★'.repeat(setup.confidence) + '☆'.repeat(3 - setup.confidence);
-  const label = setup.type === 'rejection'
-    ? `${stars} reject ${setup.strike} (${setup.holdMin.toFixed(0)}m)`
-    : `${stars} break ${setup.strike} ${setup.dir > 0 ? '↑' : '↓'} (${setup.holdMin.toFixed(0)}m)`;
+  const arrow = setupArrow(setup);
+  const verb  = setup.type === 'rejection' ? 'reject' : 'break';
+  const label = `${stars} ${verb} ${setup.strike} ${arrow} (${setup.holdMin.toFixed(0)}m)`;
   const [tk, ex, gk] = annotKey();
   const a = {
     ticker: tk, expiry: ex, greek: gk,
@@ -3557,7 +3648,8 @@ function renderToast() {
     const ageMs = now - (s.ts || now);
     const age = ageMs < 60000 ? `${Math.round(ageMs / 1000)}s` : `${Math.round(ageMs / 60000)}m`;
     const stars = '★'.repeat(s.confidence) + '☆'.repeat(3 - s.confidence);
-    const dir = s.type === 'breakout' ? (s.dir > 0 ? '↑ break' : '↓ break') : 'reject';
+    const arrow = setupArrow(s);
+    const dir = s.type === 'breakout' ? `${arrow} break` : `reject ${arrow}`;
     div.innerHTML =
       `<span class="toast-stars">${stars}</span>` +
       `<span class="toast-type">${dir} ${s.strike}</span>` +
@@ -4253,8 +4345,75 @@ document.getElementById('sAutoSens').addEventListener('change', (e) => {
 document.getElementById('sAutoTier').addEventListener('change', () => {
   // Tier filter affects toast/annotation gating + density badge readout +
   // (v0.8.3) the level lines and wall-touch indicator. Refresh both.
+  // (v0.8.4) Repopulate the setup log so the "below-tier" row dimming
+  // recomputes against the new threshold.
   if (snapshots.length) updateStats(snapshots[snapshots.length - 1].meta);
+  if (document.getElementById('setup-log').classList.contains('on')) {
+    populateSetupLog();
+  }
   render();
+});
+
+// ── Setup log panel (v0.8.4) ─────────────────────────────────────────
+// Shows the full LIVE_SIGNALS setupHistory (last 50 fires in memory),
+// including those filtered out by the ★ tier setting at fire time.
+// Click a row to scroll the chart to that fire snapshot.
+function populateSetupLog() {
+  const container = document.getElementById('setup-log-rows');
+  const meta = document.getElementById('setup-log-meta');
+  if (!container) return;
+  const history = (typeof LIVE_SIGNALS !== 'undefined') ? LIVE_SIGNALS.getSetupHistory() : [];
+  const minTier = autoMinTier();
+
+  const visible = history.filter(f => f.confidence >= minTier).length;
+  meta.textContent = `${history.length} total · ${visible} at ★${minTier}+ filter`;
+
+  if (!history.length) {
+    container.innerHTML = '<div class="log-footer" style="border:none;text-align:center;padding:20px">No setups have fired in this session yet.</div>';
+    return;
+  }
+
+  // Newest first
+  const rows = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const f = history[i];
+    const arrow = setupArrow(f);
+    const stars = '★'.repeat(f.confidence) + '☆'.repeat(3 - f.confidence);
+    const cest  = tsFormatter('hms').format(new Date(f.ts));
+    const dimmed = (f.confidence < minTier) ? ' below-tier' : '';
+    const tail = `${f.regime} · ${f.holdMin.toFixed(0)}m hold · pulse ${f.pulseMag.toFixed(0)}`;
+    rows.push(
+      `<div class="log-row ${f.type}${dimmed}" data-ci="${f.ci}">` +
+      `<span class="log-time">${cest}</span>` +
+      `<span class="log-type">${f.type}</span>` +
+      `<span class="log-strike">${f.strike}</span>` +
+      `<span class="log-arrow">${arrow}</span>` +
+      `<span class="log-spot">${f.spot.toFixed(2)}</span>` +
+      `<span class="log-vel">${f.vel >= 0 ? '+' : ''}${f.vel.toFixed(2)}%</span>` +
+      `<span class="log-tail">${stars} · ${tail}</span>` +
+      `</div>`
+    );
+  }
+  container.innerHTML = rows.join('');
+  // Wire click → scroll chart
+  container.querySelectorAll('.log-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const ci = parseInt(row.dataset.ci, 10);
+      if (!isFinite(ci) || !snapshots.length) return;
+      scrollOffset = Math.max(0, snapshots.length - 1 - ci);
+      followLive = (scrollOffset === 0);
+      render();
+    });
+  });
+}
+
+document.getElementById('btnSetupLog').addEventListener('click', () => {
+  const panel = document.getElementById('setup-log');
+  const open = panel.classList.toggle('on');
+  if (open) populateSetupLog();
+});
+document.getElementById('btnSetupLogClose').addEventListener('click', () => {
+  document.getElementById('setup-log').classList.remove('on');
 });
 
 // ═══════════════════════════════════════════════════════

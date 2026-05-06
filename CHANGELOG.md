@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.8.4] — Disambiguate rejection direction + setup log panel
+
+### Fixed — `reject 7335` was ambiguous
+The rejection label gave no clue whether spot was approaching from
+above or below — i.e., whether the rejection was bullish (bounce up
+off support) or bearish (push back down off resistance). Both setup
+types now display a directional arrow following the same convention
+that breakout has used since v0.8.0:
+- **↑** = price expected / observed to go UP after the event
+- **↓** = price expected / observed to go DOWN
+
+Rejection direction is derived from spot's position relative to the
+wall at fire time:
+- `reject 7335 ↓` → spot was below 7335 (wall = resistance), rejection = bearish
+- `reject 7335 ↑` → spot was above 7335 (wall = support), rejection = bullish
+- `break 7270 ↑`  → spot crossed 7270 going up (continuation)
+
+Convention applied to: auto-annotation labels on the chart, toast
+rows, and the new setup-log panel below.
+
+### Added — setup log panel
+New `LOG` button in the AUTO ★ toolbar group. Opens a panel showing
+the last 50 setup fires in memory, including those filtered out by
+the current ★ tier (those rows are dimmed). Each row shows:
+
+`time · type · strike · arrow · spot · velocity · ★ tier · regime · hold · Pulse mag`
+
+Click any row to scroll the chart to that fire snapshot. The panel
+auto-updates as new fires arrive while it's open. The header shows
+`N total · M at ★X+ filter` so you can see the filter's effect at a
+glance.
+
+Useful for: reviewing what fired during a session you weren't watching;
+auditing why a particular setup did/didn't pass the tier filter;
+navigating to specific fires by clicking their row.
+
 ## [0.8.3] — ★ tier filter is fully visual + wall-touch indicator dots
 
 ### Fixed UX gap
