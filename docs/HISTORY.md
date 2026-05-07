@@ -2,7 +2,7 @@
 
 Project-internal narrative: design rationale, resolved bugs, deferred items, and the commercial-product context. Loaded on demand by Claude — see `CLAUDE.md` for the always-loaded operational rules.
 
-_Last reviewed: 2026-04-29 · corresponds to `v0.6.x`_
+_Last reviewed: 2026-05-06 · corresponds to `v0.8.8`. See CHANGELOG for the narrative of v0.7.x (crosshair, annotations, replay, regime classifier, rAF coalescing, MaxCh Pulse rework) and v0.8.x (AUTO ★ live setup composer, level tracker, ★ tier filter, Loud detector, ★ MARKS toggle). The notes below are pre-v0.7 design decisions and ongoing context — they remain accurate but predate roughly half the current feature surface._
 
 ---
 

@@ -2,11 +2,11 @@
 
 _Compiled from upstream documentation (`Gexbot-State-Documentation.txt`,
 `docs/GEXBOT-API-DOC.txt`) and project-internal knowledge from `server.js`,
-`delta.html`, `index.html`, and `CLAUDE.md`. This file is intended to be
+`delta.html`, and `CLAUDE.md`. This file is intended to be
 self-contained: an AI or developer should be able to build against the GexBot
 API using only this document._
 
-_Last reviewed: 2026-04-27._
+_Last reviewed: 2026-05-06 · corresponds to `v0.8.8` (active dashboard: `delta.html` only — `index.html` removed in v0.6.5)._
 
 ---
 
@@ -107,8 +107,8 @@ variant for Greeks. Greeks are exposed as a single combined path:
 
 GexBot does not document a published refresh cadence or rate-limit ceiling.
 Empirically, the upstream snapshot updates roughly once per second. The
-`delta.html` and `index.html` dashboards in this repo poll at 1 s by default
-and expose a UI selector for 2 / 3 / 5 s.
+`delta.html` dashboard in this repo polls at 1 s by default
+and exposes a UI selector for 2 / 3 / 5 s.
 
 If you build a long-running client, default to **≥ 1 s** between polls per
 ticker and back off on 4xx/5xx. Do not retry tighter than the upstream
@@ -344,7 +344,8 @@ day.
 `{cat}` mirrors the live State path's category (e.g. `zero`, `one`,
 `full`, or a Greek bucket).
 
-**Two-step flow** as implemented in `server.js` + `index.html`:
+**Two-step flow** as implemented in `server.js` (the historical-data code
+paths exist but are inactive without a Quant subscription):
 
 1. `GET /v2/hist/...?noredirect` — returns JSON describing the archive,
    including a presigned URL.

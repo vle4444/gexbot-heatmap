@@ -2,8 +2,8 @@
 
 A live, Bookmap-style visualization of options gamma exposure (GEX) built on the
 [GexBot](https://www.gexbot.com) State-tier API. A flow-oriented browser
-dashboard, a dependency-free local server, and an optional recorder for
-backtesting.
+dashboard with a live setup composer (AUTO ★), a dependency-free local server,
+an optional recorder, and an offline analyzer for retrospective signal study.
 
 ![dashboard](screenshots/delta.png)
 
@@ -21,16 +21,30 @@ GexBot exposes both the raw GEX profile and an orderflow-classified imbalance
 - **Per-strike GEX and Greek overlays** — gamma, delta, vanna, charm
 - **Multiple measures** — raw GEX or per-strike Δ change over a configurable window
 - **Multiple Y-axes** — absolute price, offset from spot (points), or offset (%)
-- **Multiple color-scale modes** — 14 variants, grouped by whether the past
-  repaints when new data arrives (see [docs/COLOR_SCALES.md](docs/COLOR_SCALES.md))
+- **6 palettes** — including Hi-contrast (white-tipped) and Stepped (4 bands) — and
+  **8 gamma curves** (2.5 → 0.3) for fine-grained contrast control
+- **14 color-scale modes** — grouped by whether the past repaints
+  (see [docs/COLOR_SCALES.md](docs/COLOR_SCALES.md))
 - **DPR-aware rendering** — sharp on retina and fractional-DPR displays
-- **Gaussian vertical blending** — smooth transitions between strikes, with sign-safe
+- **Gaussian vertical blending** — smooth transitions between strikes, sign-safe
   winner-take-all or traditional additive modes
-- **Live level traces** — M+, M−, and Zero Gamma tracked historically per snapshot,
-  not painted statically from the latest values
-- **Session save/load** — capture the current buffer to JSON, replay later
-- **Optional long-running recorder** — stream all State-tier endpoints to JSONL
-  for every ticker you care about
+- **Live level traces** — M+, M−, and Zero Gamma tracked historically per snapshot
+- **MaxCh detectors (4 families)** — Pulse (per-strike velocity), Loud (magnitude
+  rank), Burst/Swarm/Pump (chain-aggregate events), Legacy CUSUM (persistence)
+- **AUTO ★ live setup composer** — combines sticky-wall detection + Pulse + regime
+  classifier + spot velocity to fire labeled rejection / breakout setups with
+  ↑/↓ direction arrows. Auto-annotations persist in IndexedDB; toast + log panel
+  surface fire history; configurable sensitivity + ★ tier filter
+- **Crosshair + tooltip, persistent annotations, replay scrubber** — for
+  reviewing live or restored sessions
+- **Light / dark theme** — with theme-aware palette inversion
+- **Session auto-save** to IndexedDB; manual SAVE / LOAD to JSON; **RESTORE**
+  to recover today's buffer after a tab refresh
+- **Optional long-running recorder** — stream State endpoints to JSONL for
+  every ticker you care about
+- **Offline analyzer** — replay any saved JSON through every signal family;
+  produces a markdown report with lift / fire density / lead-time tables and
+  three SVG visualizers (one per sensitivity)
 
 ## Dashboard
 
@@ -81,14 +95,17 @@ Edit `PORT` at the top of `server.js`. Default is `3001`.
 ## Files
 
 ```
-delta.html       Flow-oriented heatmap with advanced controls
-server.js        Dependency-free HTTP server + API proxy
-recorder.js      Long-running recorder → JSONL (optional, standalone)
+delta.html              Flow-oriented heatmap with advanced controls + AUTO ★
+server.js               Dependency-free HTTP server + API proxy
+recorder.js             Long-running recorder → JSONL (optional, standalone)
+analyze-recording.js    Offline forensic + sweep analyzer for saved sessions
 docs/
   COLOR_SCALES.md     Detailed guide to the 14 scale modes
-  CONTROLS.md         Full keyboard/mouse reference
-  GEXBOT-API-DOC.txt  Upstream API reference (for convenience)
-screenshots/     Readme images
+  CONTROLS.md         Full keyboard/mouse + toolbar reference
+  CONCEPTS.md         GEX / vanna / charm / regime theory
+  GEXBOT-API.md       API reference (endpoints, auth, sign convention)
+  HISTORY.md          Design decisions, resolved bugs, open items
+screenshots/          Readme images
 ```
 
 ## Controls (quick reference)
@@ -96,13 +113,17 @@ screenshots/     Readme images
 - **Scroll** — zoom Y
 - **Shift + Scroll** — zoom X (column width)
 - **Ctrl + Scroll** (or horizontal trackpad) — scroll history
+- **Hover in chart** — crosshair + floating tooltip with timestamp / strike / vol / spot / ZG
 - **Drag in chart area** — pan Y
 - **Alt + Drag in chart area** — pan X
 - **Drag in right price-axis gutter** — zoom Y (pull up = zoom in)
 - **Drag in bottom time-axis strip** — zoom X (pull right = zoom in)
+- **Click in chart area (Mark ≠ off)** — drop annotation
+- **Right-click annotation** — delete (within ~8 px)
 - **← / →** — step through history (5 at a time; Shift+arrow = 50)
 - **End** — jump to live
 - **Home** — jump to oldest buffered snapshot
+- **Esc** — close help overlay
 
 The `? HELP` button in the toolbar opens an in-page reference for every control.
 
@@ -122,6 +143,72 @@ The `? HELP` button in the toolbar opens an in-page reference for every control.
 - **Manual**: Fixed cap — you type the number.
 
 Full explanations in [docs/COLOR_SCALES.md](docs/COLOR_SCALES.md).
+
+## AUTO ★ live setup composer
+
+The dashboard's headline feature. Combines four signals to fire labeled
+rejection / breakout setups in real time:
+
+1. **Sticky walls** — strikes that have been M+ or M− for a while during
+   the session. Top-N render as faint dashed horizontal lines with `★ tier
+   · strike · holdMin` labels at the left edge (★ ≥ 5min, ★★ ≥ 15min,
+   ★★★ ≥ 30min).
+2. **Pulse** — per-strike z-score on `|maxchange|`, fires on a magnitude
+   spike vs the strike's own EMA baseline.
+3. **Regime** — long γ (spot above zero gamma, dealers fade) vs short γ
+   (spot below, dealers chase) vs flip (within ±5 bp).
+4. **Spot velocity** — direction and magnitude of recent spot movement.
+
+When all conditions stack, AUTO ★ drops a labeled annotation on the chart
+with a directional arrow (`reject 7335 ↓`, `break 7270 ↑`), pops a toast in
+the top-right corner, and (optionally) plays a brief WebAudio chirp. Fire
+history is stored in IndexedDB and surfaced via the **LOG** button — click
+any row to scroll the chart to that snapshot.
+
+Tunable via the AUTO ★ toolbar group:
+- **AUTO ★** — master toggle (on/off)
+- **sensitivity** (high / med / low) — wider/narrower near-wall band, longer/
+  shorter Pulse window, looser/tighter velocity floor
+- **★ tier filter** (★+ / ★★+ / **★★★** default) — minimum wall hold-time tier
+  for level lines to render and setups to fire alerts
+- **LOG** — open the setup-fire history panel
+- **★ MARKS** — show/hide auto-annotations on the chart (history preserved)
+- **🔊** — WebAudio chirp on each fire
+
+Fires are typically 4-10 per hour at default sensitivity. Calibrated empirically
+against real recorded sessions to balance precision and recall.
+
+## Offline analyzer
+
+`analyze-recording.js` replays one or more saved JSON files through every
+signal family (Pulse, CUSUM, Burst, Swarm, Pump, Loud, spot-velocity,
+wall-migration, wall-proximity, AUTO ★ setup composer). It produces a
+markdown report with:
+
+- **Forensic** — for each user-supplied event, lookback table showing which
+  signals fired in the 5-min window and how many seconds in advance, with
+  **lift** (fire density before the event vs base rate)
+- **Sweep** — auto-detected `|Δspot|/spot ≥ 0.08%` candidates over a 5-min
+  rolling window, same lookback analysis
+- **Setup composer fires** — chronological list of every AUTO ★ fire under
+  three sensitivities (high / med / low) with full metadata + ★ tier
+  projection table
+
+Plus three SVG visualizers (one per sensitivity) showing the spot trace
+overlaid with sticky levels, user events, sweep candidates, and setup
+fires (color-coded, hoverable for details).
+
+Usage:
+
+```bash
+node analyze-recording.js \
+  --events events-2026-05-05.json \
+  --out analysis-2026-05-05.md \
+  gexbot-SPX-zero-gamma-2026-05-05T18-40-33.json
+```
+
+`events-DATE.json` is a list of `{label, tsLocal, tz, type}` objects for the
+forensic mode. If omitted, only the sweep + setup-composer sections run.
 
 ## Recorder (optional)
 
@@ -161,8 +248,9 @@ that endpoint for the session.
   every proxied request. It does **not** live in the HTML, so you can host the
   dashboard locally without leaking the key in client JS. Don't host on a
   public URL anyway — there's no per-user authentication.
-- `.gitignore` excludes `data/` (recorded JSONL, potentially large) and any
-  `*.session.json` (saved buffers from the dashboard's SAVE button).
+- `.gitignore` excludes `data/` (recorded JSONL, potentially large), any
+  `*.session.json` (saved buffers from the dashboard's SAVE button), and
+  `gexbot-*-*-*.json` recording files.
 
 ## License
 
