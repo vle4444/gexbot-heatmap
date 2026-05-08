@@ -99,7 +99,7 @@ function aggSnapBuckets(mp) {
     const strike = parseFloat(e[0]);
     const raw    = parseFloat(e[1]);
     if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
-    const dir = -raw;  // sign convention per CLAUDE.md
+    const dir = raw;  // direct sign — resolved v0.8.9 (was `-raw`)
     let cur = fired.get(strike);
     if (!cur) {
       cur = { count: 0, posVotes: 0, negVotes: 0, absSum: 0, dirSum: 0, maxAbs: 0, tieBreak: 0 };
@@ -1299,7 +1299,7 @@ function main() {
   lines.push('');
   lines.push('- Single trading day (n=1 session). Numbers below should be treated as hypothesis-generating, not statistically significant.');
   lines.push('- "Hit rate" = signal fired *somewhere* in the 5-min lookback window. A high hit-rate signal that also fires constantly outside event windows isn\'t actually predictive — needs a separate "false positive" study (next iteration).');
-  lines.push('- Sign convention: `dir = -raw` per CLAUDE.md (open verify TODO). Affects glyph color, not magnitude-based fires.');
+  lines.push('- Sign convention: `dir = raw` (resolved v0.8.9, was `-raw`). Affects glyph color, not magnitude-based fires.');
   lines.push('- Wall migration / proximity signals depend on `meta.majPos` / `meta.majNeg` being numeric (not `—`). They are in the gamma overlay; check coverage if running on other overlays.');
   lines.push('- Net GEX / Zero γ signals not implemented here because the recorded files use the gamma overlay where those fields are `—`. To enable, re-record in GEX overlay (`Greek = none`).');
 

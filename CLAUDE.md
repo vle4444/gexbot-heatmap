@@ -1,6 +1,6 @@
 # GEX Heatmap
 
-_Last updated: 2026-05-06 · corresponds to `v0.8.8`_
+_Last updated: 2026-05-07 · corresponds to `v0.8.10`_
 
 Live GEX (gamma exposure) heatmap dashboard for options-market visualization, built on the GexBot API. Vanilla browser JS + a dependency-free Node proxy. Personal/research project — not for redistribution.
 
@@ -25,12 +25,16 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 
 ### Dashboard (`delta.html`) — major feature areas
 - **Heatmap rendering** — Δ vs Raw measure, offset Y modes (abs / rel-pts / rel-%), sub-pixel `Col px` with max-abs aggregation, Strike-px ladder (Bookmap-style), 6 palettes (incl. Hi-contrast / Stepped), 8 gamma values (2.5 → 0.3), 14 color-scale modes, 3 blend modes (hard / sum / max-sign-safe).
-- **MaxCh detectors** (rewritten in v0.7.2, expanded v0.8.7) — four families:
+- **MaxCh detectors** (rewritten in v0.7.2, expanded v0.8.7, strict family added v0.8.9) — five families:
+  - **Strict (v0.8.9)** — three independent models, designed to be mostly quiet:
+    - `surprise_strict` — log-magnitude z-score (heavy-tail-aware) with per-strike fallback to session-wide log pool for first-appearance prints.
+    - `consensus_strict` — cross-time-horizon agreement: `(n_buckets-1) × |dirSum|/sessionMax`, fires on the transition above 0.40 with Schmitt hysteresis (re-arms below 0.20). Catches multi-bucket agreement.
+    - `rank_shift_strict` — calibration-free top-1 rank-entry detector over a 30-snap window. Strictest of the three.
   - **Pulse** (default) — per-strike Welford EMA + z-score. Catches velocity/changes at a strike vs its own baseline. fast/normal/strict.
   - **Loud** (v0.8.7) — magnitude rank vs `sessionMaxAbs`. Catches absolute big prints regardless of per-strike history. loose/normal/strict (≥10/20/35%).
   - **Event detectors** — burst (chain-aggregate z), swarm (same-sign cluster), pump (burst ∧ swarm ∧ near-spot).
   - **Legacy CUSUM** (demoted v0.8.2) — bucket-win persistence; empirically lift ≈ 1.0 in production (always-on noise). Kept for niche use.
-- **AUTO ★ live setup composer** (added v0.8.0, tuned through v0.8.8) — combines a per-strike Pulse-equivalent live state, a session-wide level tracker (per-strike `holdSnaps` + `flowScore`), regime classifier, spot velocity, and spot-vs-wall position to fire two setup types:
+- **AUTO ★ live setup composer** (added v0.8.0, tuned through v0.8.10) — combines a per-strike Pulse-equivalent live state, a session-wide level tracker (per-strike `holdSnaps` + `flowScore`), regime classifier, spot velocity, and spot-vs-wall position to fire two setup types. v0.8.10 added a deceleration + minimum-approach-velocity filter (per sensitivity preset) so rejection only fires on real approaches that decelerate into the wall, not drift-near-wall noise. Breakout has the symmetric acceleration filter:
   - **rejection** (orange) — spot near sticky wall + Pulse fired near + long-γ regime.
   - **breakout** (blue) — spot crosses sticky wall in direction of sustained velocity + Pulse fired near + short-γ regime.
   - Output: persistent level lines (top-N sticky strikes with ★ tier badges), auto-annotations on each fire (with ↑/↓ direction arrow), toast notifications, optional WebAudio chirp, log panel (`LOG` button), live `★ rate` density badge in stats bar, ★ tier filter (★★★ default = ≥30m hold required), `★ MARKS` toggle (v0.8.8) to hide auto-annotations from the chart without losing detection.
@@ -63,7 +67,7 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 - Numeric financial fields (strike, price, greek): use `??`, **never** `||`. Numeric zero is falsy and silently drops legitimate values.
 - DPR canvas math: compute tick / overlay positions in CSS-space via `setTransform(dpr, 0, 0, dpr, 0, 0)`, not in raw device pixels. Fractional DPR (1.25x, 1.33x) drifts otherwise.
 - The `gexbot_custom_` prefix is part of the **token value**, not a URL path segment. Always goes in `Authorization: Bearer …`. Costed hours of 400/404 debugging once.
-- GexBot `/maxchange` value field appears to use an **inverted** sign vs direction of imbalance change — the renderer negates raw before downstream processing (`dir = -raw`). This is based on three live screenshots; later evidence (a pump producing red where green was expected) puts it in doubt. A debug logger is wired in (`?dbg=STRIKE` URL param). **Don't "fix" the negation without first running the debug logger on a clean event** — see `docs/HISTORY.md` § MaxCh and the open TODO in the auto-memory store.
+- GexBot `/maxchange` value field uses **direct** sign convention (`dir = raw`). This was an open question for several versions — earlier code had `dir = -raw` based on three early screenshots. Resolved 2026-05-07 against the `gexbot-SPX-zero-gamma-2026-05-07T14-19-11.json` recording: at 14:14:01 strike 7350 prints raw -97 → -250 across multiple buckets, which the user identified as "negative gamma added" and the heatmap rendered pink at 7350. Three independent signals agreed → negation removed. Debug logger (`?dbg=STRIKE`) still wired in `delta.html` for future verifications.
 - State-endpoint responses report `_oi`, `zero_gamma`, and `delta_risk_reversal` as literal `0` (not null/missing). Treat as N/A in State mode rather than legitimate zeros.
 - Recorded files in gamma overlay (most user recordings) have `meta.zeroG` and `meta.netGex` as `'—'` — these are GEX-overlay-only fields. Setup composer's regime classifier treats `unknown` as permissive so detection still works on gamma-overlay sessions.
 - The `LIVE_SIGNALS.rebuild()` call on RESTORE/LOAD is intentionally **silent** (doesn't fire toasts/annotations for past data). Setup-fire history is therefore empty after RESTORE; live polling forward populates it.
@@ -91,12 +95,13 @@ Live GEX (gamma exposure) heatmap dashboard for options-market visualization, bu
 The user's auto-memory at `~/.claude/projects/C--Users-vle-Downloads-gexbot-heatmap-gexbot-heatmap/memory/MEMORY.md` indexes session-spanning notes. Currently:
 - `maxch_design_decision.md` — original literature-backed reasoning for the MaxCh CUSUM filter (CUSUM vs BOCPD vs wavelets etc.). **Stale**: CUSUM was demoted in v0.8.2 after empirical analysis showed lift ≈ 1.0. The reasoning in this file remains a useful reference for future change-detection work but the recommendation it makes is no longer the dashboard default.
 - `maxch_pulse_v0_7_2.md` — Pulse detector design + presets (v0.7.2). Still authoritative for Pulse.
-- `todo_verify_maxch_sign.md` — open TODO. The `dir = -raw` sign convention should be verified empirically using the `?dbg=STRIKE` URL param logger before being trusted long-term.
+- `maxch_strict_v0_8_9.md` — design notes for the v0.8.9 strict family (surprise / consensus / rank-shift), including the 7350 anchor event and why three different model families.
+- `maxch_sign_resolved_v0_8_9.md` — closed-out version of the `todo_verify_maxch_sign.md` reminder. `dir = raw` (no negation) is the correct convention; resolved against the 2026-05-07 SPX recording.
 - `todo_offscreen_worker.md` — parked. The OffscreenCanvas + Worker offload was scoped during v0.7.0 but deferred because the renderHeat pixel loop interleaves with vector overlays in one sync flow.
 
 ## Quick orientation for a new session
 - The dashboard's headline feature is **AUTO ★** — a live setup composer that fires labeled rejection/breakout annotations at sticky walls. Tunable via the AUTO ★ toolbar group (sensitivity, ★ tier filter, chirp, marks-visibility toggle).
-- **MaxCh** has four families now (Pulse, Loud, Event detectors, Legacy CUSUM). Pulse `normal` is the live default for the chart's MaxCh layer; it complements Loud (which catches absolute-magnitude rank events).
+- **MaxCh** has five families now (Strict v0.8.9, Pulse, Loud, Event detectors, Legacy CUSUM). Pulse `normal` is the live default; the Strict trio (`surprise_strict` / `consensus_strict` / `rank_shift_strict`) sits at the top of the dropdown and is the recommended starting point when you want fewer, higher-conviction fires.
 - **Sticky levels** drive AUTO ★ — a level is a strike that's been M+ or M− for a while. The level tracker increments per-snapshot and the top-N strikes by hold-time render as faint dashed horizontal lines with `★ tier · strike · holdMin` labels at the left edge.
 - **Light/dark theme**: persistent in localStorage. Palettes ramp differently per theme so cells fade into the right background color.
 - The `analyze-recording.js` tool is the way to do post-hoc analysis — it has both forensic (vs user events) and automated sweep (auto-detected spot moves) modes, with a lift metric that controls for base rate.

@@ -1,5 +1,102 @@
 # Changelog
 
+## [0.8.10] — AUTO ★ approach/decel filter + analysis of 2026-05-07 SPX session
+
+User feedback after a 4-hour SPX recording (file
+`gexbot-SPX-zero-gamma-2026-05-07T17-48-35.json`, 9070 snaps,
+14:11Z–18:05Z): "I don't see much edge in your auto live event
+detector". The session contained 68 spot reversals (≥3 pt within 60s),
+including the headline events:
+- 15:34:51 → 16:01:51: 21.7 pt sell-off then 21.7 pt recovery
+- 17:25:36 → 17:27:13: 18 pt drop then 12.6 pt bounce (low-of-day at 7321.66)
+- repeating 7335 / 7320 wall tests through 17:00–18:00
+
+### What the analysis showed
+Replay of the existing AUTO ★ logic at ★★★ tier produced ~6 fires over
+4 hours — already few. But the *quality* was the problem: most fires
+were drift-near-wall (`vel ≈ −0.18 SPX/5s`), not real approaches.
+The "approach" check fired any time velocity sign matched direction-
+to-wall, with no minimum magnitude.
+
+### Fix — decel + minimum-approach filter (per sensitivity preset)
+Two new SENSITIVITY parameters wired into the rejection branch and
+mirrored on the breakout branch:
+- `minApproachVel` (SPX points / 5-snap window): the **prior** 5s spot
+  velocity must have ≥ this magnitude. Filters drift.
+- `decelRatio`: current 5s velocity must be `< |prior| × decelRatio`.
+  The "wall is starting to hold" signature.
+
+Tuning per preset (calibrated against the 2026-05-07 session):
+
+| Sensitivity | minApproachVel | decelRatio |
+|---|---|---|
+| `high` | 0.30 SPX | 0.85 |
+| `med`  | 1.00 SPX | 0.70 |
+| `low`  | 2.00 SPX | 0.55 |
+
+Replay on `low`: 4 fires/4h, including a single fire at 15:34 (wall=7375,
+v_prev=+7.75, v_now=−2.74) that anchors the day's biggest pop-and-reverse
+setup. Replay on `med`: 6 fires/4h.
+
+Breakout uses the inverse — `accelRatio = 1/decelRatio` — and now requires
+spot to be moving *faster* through the wall than into it.
+
+### Other findings (not implemented — documented for follow-up)
+- `accel` (per-strike d/dt of |dir|) was prototyped — same behavior as
+  the existing Surprise detector, no added lead time. Skipped.
+- `wall_flow` (cumulative |dir| at major wall over rolling window) was
+  prototyped — flow saturates *after* bounces, not before. Skipped.
+- The strict trio from v0.8.9 (Surprise / Consensus / Rank-Shift)
+  catches ~all major events but with inherent ~0s lead time, since
+  /maxchange is fundamentally reactive. The predictive edge lives in
+  spot dynamics + wall stickiness, not in the maxch feed itself.
+
+See `docs/ANALYSIS-2026-05-07.md` for the full session breakdown.
+
+## [0.8.9] — Three new strict MaxCh detectors + sign-convention resolved
+
+User feedback after reviewing a 2026-05-07 SPX recording (file
+`gexbot-SPX-zero-gamma-2026-05-07T14-19-11.json`): around 14:14:01 UTC
+strike 7350 absorbed a megaprint (raw -97 → -250 across 2 then 3
+buckets, "negative gamma added"). Existing modes either fired with
+wrong-color glyphs (sign convention bug) or weren't strict enough.
+
+### Sign convention resolved (`dir = raw`, was `dir = -raw`)
+The original `dir = -raw` negation had been an open TODO since the
+detector was introduced — based on three early screenshots, with
+later evidence putting it in doubt. The 7350 event finally provided a
+clean three-way confirmation: raw value sign, heatmap rendering color,
+and the user's stated read of the move all agreed. The negation has
+been removed from `aggSnapBuckets` (delta.html) and the analyzer
+(`analyze-recording.js`).
+
+**Visible effect**: every Pulse / Loud / CUSUM glyph color flips. A
+strike with raw -97 now renders RED (negative-direction change),
+matching the heatmap's pink. Magnitudes and detection logic are
+unchanged.
+
+### New "Strict" detector family — three different math models
+Three independent detectors at the top of the dropdown, each using
+a different mathematical model so confluence between them is genuinely
+informative:
+
+| Mode | Model family | What it catches |
+|---|---|---|
+| `surprise_strict` | log-magnitude z-score, per-strike with session-pool fallback for new strikes | "this is unusual for THIS strike (or for the session, if new)" |
+| `consensus_strict` | (n_buckets-1) × |dirSum|/sessionMax with Schmitt hysteresis on transitions | "multiple time horizons agree" |
+| `rank_shift_strict` | top-1 rank-entry from outside last 30-snap window | "this strike just became the loudest, and it wasn't loud recently" |
+
+All three fire on the 7350 anchor event in offline replay and stay
+quiet through normal flow (~7-14 fires across a 7.5-min file vs Pulse
+normal's 26).
+
+### Other
+- `aggSnapBuckets` now tracks the set of bucket indices per strike
+  (`bset`) — needed by Consensus to measure cross-time-horizon
+  agreement.
+- Existing modes (Pulse / Loud / Burst / Swarm / Pump / CUSUM) all
+  unchanged in logic. Pulse `normal` remains the default.
+
 ## [0.8.8] — `★ MARKS` toggle to hide auto-generated annotations
 
 New toggle button in the AUTO ★ toolbar group, labeled `★ MARKS`. When

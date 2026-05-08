@@ -544,8 +544,13 @@ canvas#prof { display: block; width: 100%; height: 100%; }
 
   <div class="ctrl">
     <span class="lbl" style="color:#a0d8ff">MaxCh</span>
-    <select id="sMaxCh" title="MaxCh detection. Pulse (per-strike z-score) catches CHANGES, Loud (magnitude rank vs session-max) catches BIG prints regardless of history — complementary. Event detectors flag chain-aggregate spikes. CUSUM demoted (lift ≈ 1.0).">
+    <select id="sMaxCh" title="MaxCh detection. Strict modes (Surprise / Consensus / Rank-Shift) added v0.8.9 — three different model families, each tuned to fire only on clean events. Pulse / Loud kept; CUSUM legacy.">
       <option value="off">off</option>
+      <optgroup label="Strict (v0.8.9 — different math, mostly quiet)">
+        <option value="surprise_strict">surprise (log-z heavy-tail aware)</option>
+        <option value="consensus_strict">consensus (multi-bucket agreement)</option>
+        <option value="rank_shift_strict">rank-shift (top-1 entry detector)</option>
+      </optgroup>
       <optgroup label="Pulse — per-strike z-score (catches changes)">
         <option value="pulse_fast">fast (low threshold, short hold)</option>
         <option value="pulse_normal" selected>normal</option>
@@ -925,10 +930,11 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <p><b>Cooldown</b>: per (type, strike) the same setup can't refire for 3-6 minutes (sensitivity-dependent). Prevents the same wall test from spamming the toast on every snapshot.</p>
     <h3>Sensitivity</h3>
     <dl>
-      <dt>high</dt><dd>Wide near-wall band (±0.10%), 60s pulse-recency window, lenient velocity threshold, 6m cooldown. More setups, more noise.</dd>
-      <dt>med <span style="color:#9aa">— default</span></dt><dd>±0.06% near-wall, 45s pulse window, 10m cooldown. Balanced.</dd>
-      <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor, 15m cooldown. Fewer setups, higher conviction.</dd>
+      <dt>high</dt><dd>Wide near-wall band (±0.10%), 60s pulse-recency window, lenient velocity threshold, 6m cooldown. <b>Decel filter</b>: prior 5s velocity ≥ 0.30 SPX, current ≤ 85% of prior. More setups, more noise.</dd>
+      <dt>med <span style="color:#9aa">— default</span></dt><dd>±0.06% near-wall, 45s pulse window, 10m cooldown. <b>Decel filter</b>: prior 5s velocity ≥ 1.00 SPX, current ≤ 70% of prior. Balanced.</dd>
+      <dt>low</dt><dd>±0.04% near-wall, 30s pulse window, 0.02% velocity floor, 15m cooldown. <b>Decel filter</b>: prior 5s velocity ≥ 2.00 SPX, current ≤ 55% of prior. Fewer setups, higher conviction — only fires on decisive approaches that clearly slow into the wall.</dd>
     </dl>
+    <p><b>Why the decel filter (v0.8.10)</b>: prior versions fired on any spot that drifted near a sticky wall — even <code>vel ≈ −0.18 SPX/5s</code> would qualify, producing many "rejection" labels from random tick noise. The decel filter requires a <i>real</i> approach (prior velocity ≥ a sensitivity-dependent threshold) <i>and</i> deceleration into the wall (current velocity slower than prior). Replay against the 2026-05-07 SPX session showed this surfaces the day's headline setups (e.g. the 7375 pop-and-reverse → 21.7-pt drop) while suppressing the drift-near-wall noise. Breakout has a symmetric acceleration filter — fires only when spot is moving <i>faster</i> through the wall than into it.</p>
     <h3>★ tier filter</h3>
     <p>Independent of sensitivity. Sets the minimum wall hold-time tier for two things:</p>
     <ol>
@@ -945,7 +951,16 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <p><b>Audio chirp</b> (🔊 checkbox): brief WebAudio tone on each fire passing the tier filter (660 Hz rejection / 880 Hz breakout). Off by default. Some browsers block audio until the user interacts with the page.</p>
 
     <h2>MaxCh overlay</h2>
-    <p>The <b>MaxCh</b> selector overlays strikes absorbing GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets (current/1m/5m/10m/15m/30m) each pick a winning strike every second, with adjacent strikes randomly trading places. Three filter families are available, each tuned for a different question.</p>
+    <p>The <b>MaxCh</b> selector overlays strikes absorbing GEX-imbalance flow, sourced from the API's <code>/maxchange</code> endpoint (works in every overlay mode, Greek included). The raw feed is noisy — six buckets (current/1m/5m/10m/15m/30m) each pick a winning strike every second, with adjacent strikes randomly trading places. Multiple filter families are available, each tuned for a different question.</p>
+
+    <h3>Strict (v0.8.9) — three different models, designed to be mostly quiet</h3>
+    <p>Three independent detectors, intentionally using <i>different math</i>: confluence between two or more = high confidence. Each fires on the 2026-05-07 SPX 7350 megaprint reference event and stays quiet through normal flow.</p>
+    <dl>
+      <dt>surprise <span style="color:#9aa">— Bayesian flavor</span></dt><dd>Heavy-tail-aware. Per-strike running mean &amp; variance of <code>log(|dir|+1)</code>; fires when current snap's log-magnitude exceeds <b>z<sub>fire</sub> = 3.0</b> standard deviations above the strike's own log-baseline. New strikes (n &lt; 6 observations) are scored against the session-wide log-magnitude pool instead of a vacuum, so first-appearance prints aren't silently dropped. Catches <i>changes from normal</i>. <span style="color:#9aa">(z<sub>fire</sub>=3.0, min_obs=6, hold=6)</span></dd>
+      <dt>consensus <span style="color:#9aa">— cross-time-horizon</span></dt><dd>Calibration-light. The six <code>/maxchange</code> buckets are different time horizons (current/1m/5m/10m/15m/30m). Score = (n_buckets−1) × |dirSum| / sessionMaxAbs. Fires on the <i>transition</i> from below <b>0.20</b> to above <b>0.40</b> (Schmitt hysteresis), so a 60-snap consensus plateau fires once instead of 60 times. Independent of per-strike history — catches "multiple horizons agree NOW." <span style="color:#9aa">(score_high=0.40, score_low=0.20, hold=8)</span></dd>
+      <dt>rank-shift <span style="color:#9aa">— calibration-free</span></dt><dd>Pure ordinal — no thresholds tied to magnitude scale. Each snap, ranks firing strikes by |dirSum|. Fires when a strike enters rank-1 from <i>outside the top-1</i> over the last 30 snaps, AND its magnitude is ≥ 60% of the rank-1 magnitude (filters trivial top-1 entries on dead snaps). Strictest of the three — typically 5-10 fires per session. <span style="color:#9aa">(K=1, window=30, min_pct=0.6, hold=10)</span></dd>
+    </dl>
+    <p><b>Why three different models?</b> Each can be fooled in a different way. Surprise misses sustained big strikes whose baseline already absorbed the magnitude. Consensus misses single-bucket events where only the <i>current</i> horizon shows a change. Rank-Shift can miss a #2 strike that's still very large. When 2+ fire on the same strike near the same time, the signal is unusually robust.</p>
 
     <h3>Pulse — per-strike z-score (fast + strong, recommended default)</h3>
     <p>Each strike maintains its own EMA of |dir| (Roberts EMVar). When the current snap's magnitude exceeds <b>z<sub>fire</sub> × σ</b> above the strike's own baseline, it fires <i>immediately</i> — no multi-snap persistence required. Hold-and-exit hysteresis keeps the glyph on as long as <b>z ≥ z<sub>keep</sub></b>, otherwise a hold-timer counts down.</p>
@@ -2323,8 +2338,12 @@ function renderHeat() {
   //
   //   3. Render glyphs only for strikes in ON state at each snapshot.
   //
-  // Sign convention: API's raw value is inverted relative to direction of
-  // imbalance change (verified empirically — see negate of `raw` below).
+  // Sign convention (resolved v0.8.9): API's raw value sign IS the
+  // direction of imbalance change at the strike. Earlier code negated
+  // (`dir = -raw`) based on three early screenshots; a 2026-05-07 SPX
+  // recording with a clean 7350 megaprint (raw -97 → "negative gamma
+  // added", visually confirmed against the heatmap rendering) showed
+  // the negation produced wrong-color glyphs. Removed.
   //
   // CUSUM walks ALL snapshots from index 0 (state must persist beyond the
   // visible window). Cost is one float-op per strike per snapshot — trivial
@@ -2379,7 +2398,10 @@ function renderHeat() {
     };
 
     // ── Per-snapshot bucket aggregation. Used by every MaxCh mode. ──
-    // Returns Map<strike, {count, posVotes, negVotes, absSum, dirSum, maxAbs, tieBreak}>.
+    // Returns Map<strike, {count, posVotes, negVotes, absSum, dirSum,
+    // maxAbs, tieBreak, bset}>. `bset` = Set of bucket indices [0..5]
+    // that named this strike — needed by the Consensus detector to
+    // measure cross-time-horizon agreement.
     const aggSnapBuckets = (mp) => {
       const fired = new Map();
       if (!mp) return fired;
@@ -2389,9 +2411,10 @@ function renderHeat() {
         const strike = parseFloat(e[0]);
         const raw    = parseFloat(e[1]);
         if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
-        const dir = -raw; // sign-convention inversion (see CLAUDE.md)
+        const dir = raw; // direct sign — see resolution note above
         const cur = fired.get(strike) || {
           count: 0, posVotes: 0, negVotes: 0, absSum: 0, dirSum: 0, maxAbs: 0, tieBreak: 0,
+          bset: new Set(),
         };
         cur.count++;
         cur.absSum += Math.abs(dir);
@@ -2402,6 +2425,7 @@ function renderHeat() {
           cur.maxAbs   = mag;
           cur.tieBreak = dir >= 0 ? 1 : -1;
         }
+        cur.bset.add(b);
         fired.set(strike, cur);
       }
       return fired;
@@ -2661,6 +2685,259 @@ function renderHeat() {
       renderSnapStates(snapStates, globalMaxMag, maxChSel);
     }
 
+    // ╔═══ STRICT (v0.8.9) — three detectors, three model families ══════════╗
+    //
+    // Goal: catch a clean event like the 2026-05-07 SPX 7350 megaprint
+    // (raw -97 → -250 in two then three buckets) and stay quiet else.
+    // Each detector uses a distinct model so confluence between them =
+    // very high confidence; firing in only one = a directional read on
+    // what kind of move it is.
+    //
+    //   • SURPRISE  — heavy-tail-aware: log-magnitude z-score with
+    //                 per-strike fallback to session pool for first-
+    //                 appearance prints. Bayesian flavor (informative
+    //                 prior from history). Catches changes-from-normal.
+    //
+    //   • CONSENSUS — calibration-light: agreement across the six time-
+    //                 horizon buckets (current/1m/5m/10m/15m/30m). When
+    //                 ≥2 buckets agree on the same strike with sustained
+    //                 magnitude → strong signal. Schmitt hysteresis on
+    //                 score so a 60-snap consensus plateau fires once.
+    //
+    //   • RANK-SHIFT— calibration-free: ranks firing strikes by |dirSum|
+    //                 each snap, fires on rank-1 entry from outside the
+    //                 last 30 snaps' top-K. Pure ordinal — no thresholds
+    //                 tied to magnitude scale.
+
+    // ── SURPRISE (strict) ───────────────────────────────────────────
+    if (maxChSel === 'surprise_strict') {
+      const Z_FIRE = 3.0, MIN_OBS = 6, HOLD = 6, GLOBAL_PRIME = 30;
+      const perStrike = new Map();              // strike → { mu, s2, n }
+      let gMu = 0, gS2 = 0, gN = 0;             // session-wide log-mag pool
+      const tracker = new Map();                // strike → { state, hold, peakMag, lastDir }
+      const snapStates = new Array(nCols);
+      let globalMaxMag = 0;
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+
+        // Score every fired strike using its own log-mag stats if it has
+        // enough samples; otherwise fall back to the session-wide pool
+        // (so a never-before-seen strike printing big still scores).
+        for (const [strike, info] of fired) {
+          const m  = info.absSum;
+          const lm = Math.log(m + 1);
+          let z = 0;
+          const ps = perStrike.get(strike);
+          if (ps && ps.n >= MIN_OBS) {
+            const sd = Math.sqrt(Math.max(ps.s2, 1e-9));
+            z = (lm - ps.mu) / sd;
+          } else if (gN >= GLOBAL_PRIME) {
+            const sd = Math.sqrt(Math.max(gS2, 1e-9));
+            z = (lm - gMu) / sd;
+          }
+
+          let cs = tracker.get(strike);
+          if (!cs) {
+            cs = { state: 0, hold: 0, peakMag: 0, lastDir: 0 };
+            tracker.set(strike, cs);
+          }
+          if (z >= Z_FIRE && m > 0) {
+            cs.state   = info.dirSum >= 0 ? 1 : -1;
+            cs.hold    = HOLD;
+            cs.peakMag = Math.max(cs.peakMag, m);
+            cs.lastDir = cs.state;
+          }
+
+          // Welford updates (after scoring, so the firing snap doesn't
+          // self-suppress its own surprise).
+          gN++;
+          const dG = lm - gMu;
+          gMu += dG / gN;
+          gS2 = ((gN - 1) * gS2 + dG * (lm - gMu)) / gN;
+          if (!ps) {
+            perStrike.set(strike, { mu: lm, s2: 0, n: 1 });
+          } else {
+            ps.n++;
+            const d = lm - ps.mu;
+            ps.mu += d / ps.n;
+            ps.s2 = ((ps.n - 1) * ps.s2 + d * (lm - ps.mu)) / ps.n;
+          }
+        }
+
+        // Decay holds for tracked strikes
+        for (const cs of tracker.values()) {
+          if (cs.state !== 0) {
+            cs.hold -= 1;
+            if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+          }
+        }
+
+        // Render-state capture at bin boundaries
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const [strike, cs] of tracker) {
+                if (cs.state !== 0 && cs.peakMag > 0) {
+                  list.push({ strike, state: cs.state, mag: cs.peakMag });
+                  if (cs.peakMag > globalMaxMag) globalMaxMag = cs.peakMag;
+                }
+              }
+              snapStates[k] = list;
+            }
+          }
+        }
+      }
+
+      renderSnapStates(snapStates, globalMaxMag, 'surprise');
+    }
+
+    // ── CONSENSUS (strict) ──────────────────────────────────────────
+    if (maxChSel === 'consensus_strict') {
+      const SCORE_HIGH = 0.40, SCORE_LOW = 0.20, HOLD = 8;
+      let sMax = 0;
+      const armed   = new Map();   // strike → boolean (re-armable when below SCORE_LOW)
+      const tracker = new Map();   // strike → { state, hold, peakMag }
+      const snapStates = new Array(nCols);
+      let globalMaxMag = 0;
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+
+        // Update running session max-abs (causal — only what's been seen so far).
+        for (const info of fired.values()) {
+          if (info.maxAbs > sMax) sMax = info.maxAbs;
+        }
+
+        const seen = new Set();
+        if (sMax > 0) {
+          for (const [strike, info] of fired) {
+            seen.add(strike);
+            const score = (info.bset.size < 2)
+              ? 0
+              : (info.bset.size - 1) * (Math.abs(info.dirSum) / sMax);
+
+            const wasArmed = armed.get(strike) !== false;
+            if (wasArmed && score >= SCORE_HIGH) {
+              let cs = tracker.get(strike);
+              if (!cs) { cs = { state: 0, hold: 0, peakMag: 0 }; tracker.set(strike, cs); }
+              cs.state   = info.dirSum >= 0 ? 1 : -1;
+              cs.hold    = HOLD;
+              cs.peakMag = Math.max(cs.peakMag, info.absSum);
+              armed.set(strike, false);
+            } else if (!wasArmed && score < SCORE_LOW) {
+              armed.set(strike, true);
+            }
+          }
+        }
+        // Strikes absent this snap with no consensus → re-arm
+        for (const [strike, isArmed] of armed) {
+          if (!seen.has(strike) && isArmed === false) armed.set(strike, true);
+        }
+
+        // Decay holds
+        for (const cs of tracker.values()) {
+          if (cs.state !== 0) {
+            cs.hold -= 1;
+            if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+          }
+        }
+
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const [strike, cs] of tracker) {
+                if (cs.state !== 0 && cs.peakMag > 0) {
+                  list.push({ strike, state: cs.state, mag: cs.peakMag });
+                  if (cs.peakMag > globalMaxMag) globalMaxMag = cs.peakMag;
+                }
+              }
+              snapStates[k] = list;
+            }
+          }
+        }
+      }
+
+      renderSnapStates(snapStates, globalMaxMag, 'consensus');
+    }
+
+    // ── RANK-SHIFT (strict) ─────────────────────────────────────────
+    if (maxChSel === 'rank_shift_strict') {
+      const K = 1, WINDOW = 30, MIN_PCT_OF_TOP1 = 0.6, HOLD = 10;
+      const recentBest = new Map();    // strike → array of {ci, rank}
+      const tracker    = new Map();    // strike → { state, hold, peakMag }
+      const snapStates = new Array(nCols);
+      let globalMaxMag = 0;
+
+      for (let ci = 0; ci < endI; ci++) {
+        const fired = aggSnapBuckets(snapshots[ci].meta.maxPriors);
+        const ranked = [];
+        for (const [strike, info] of fired) {
+          ranked.push({ strike, info, mag: Math.abs(info.dirSum) });
+        }
+        ranked.sort((a, b) => b.mag - a.mag);
+        const top1 = ranked.length ? ranked[0].mag : 0;
+
+        ranked.forEach((r, idx) => {
+          const rank = idx + 1;
+          let list = recentBest.get(r.strike);
+          if (!list) { list = []; recentBest.set(r.strike, list); }
+          while (list.length && (ci - list[0].ci) > WINDOW) list.shift();
+
+          let minRecent = 999;
+          for (const x of list) if (x.rank < minRecent) minRecent = x.rank;
+
+          if (rank <= K && minRecent > K && top1 > 0 && (r.mag / top1) >= MIN_PCT_OF_TOP1) {
+            let cs = tracker.get(r.strike);
+            if (!cs) { cs = { state: 0, hold: 0, peakMag: 0 }; tracker.set(r.strike, cs); }
+            cs.state   = r.info.dirSum >= 0 ? 1 : -1;
+            cs.hold    = HOLD;
+            cs.peakMag = Math.max(cs.peakMag, r.info.absSum);
+          }
+
+          list.push({ ci, rank });
+        });
+
+        // Decay holds
+        for (const cs of tracker.values()) {
+          if (cs.state !== 0) {
+            cs.hold -= 1;
+            if (cs.hold <= 0) { cs.state = 0; cs.peakMag = 0; }
+          }
+        }
+
+        if (ci >= startI) {
+          const offset = ci - startI;
+          const isBinEnd = ((offset + 1) % binSize === 0) || (ci === endI - 1);
+          if (isBinEnd) {
+            const k = Math.floor(offset / binSize);
+            if (k < nCols) {
+              const list = [];
+              for (const [strike, cs] of tracker) {
+                if (cs.state !== 0 && cs.peakMag > 0) {
+                  list.push({ strike, state: cs.state, mag: cs.peakMag });
+                  if (cs.peakMag > globalMaxMag) globalMaxMag = cs.peakMag;
+                }
+              }
+              snapStates[k] = list;
+            }
+          }
+        }
+      }
+
+      renderSnapStates(snapStates, globalMaxMag, 'rank-shift');
+    }
+
+    // ╚═══════════════════════════════════════════════════════════════════════╝
+
     // ── CUSUM PRESETS (legacy, kept for "persistent slow flow") ──────
     // CUSUM ARL₀ (mean time between false alarms) grows roughly exponentially
     // in h and quadratically in k, so threshold is the primary stringency knob.
@@ -2698,7 +2975,7 @@ function renderHeat() {
             const strike = parseFloat(entry[0]);
             const raw    = parseFloat(entry[1]);
             if (!isFinite(strike) || !isFinite(raw) || strike <= 0 || raw === 0) continue;
-            const dir = -raw; // sign-convention inversion
+            const dir = raw; // direct sign (resolved v0.8.9)
             const cur = fired.get(strike) || {
               count: 0, posVotes: 0, negVotes: 0, maxAbs: 0, tieBreak: 0,
             };
@@ -3209,10 +3486,21 @@ const LIVE_SIGNALS = (function () {
   // Cooldowns bumped 2.5-3× in v0.8.1 after empirical analysis of 2026-05-05
   // showed 30 fires at 7270 with the prior 240s cooldown — too repetitive on
   // a single wall test.
+  // decelRatio + minApproachVel (v0.8.10) — empirically calibrated against
+  // the 2026-05-07 SPX session. The user reported seeing little edge from
+  // AUTO ★. Replay showed AUTO ★ already fires sparingly (~6/4h at ★★★)
+  // but most fires were drift-near-wall (vel ≈ −0.18 SPX/5sec), not real
+  // approaches. Adding decel + min-approach surfaced the day's headline
+  // setup (15:34 SPX 7375 pop-and-reverse → 21.7-pt drop) as a single
+  // actionable fire while keeping unrelated drift-noise out.
+  //   decelRatio       — current vel must be < |prevVel| × decelRatio.
+  //                      Lower = stricter slowdown required.
+  //   minApproachVel   — minimum |prevVel| (SPX points per 5-snap window)
+  //                      required for a rejection to fire. Filters drift.
   const SENSITIVITY = {
-    high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 360 },
-    med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 600 },
-    low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 900 },
+    high: { nearPct: 0.0010, pulseWithinSec: 60, velWindowSec: 30, velMinPct: 0.005, cooldownSec: 360, decelRatio: 0.85, minApproachVel: 0.30 },
+    med:  { nearPct: 0.0006, pulseWithinSec: 45, velWindowSec: 30, velMinPct: 0.010, cooldownSec: 600, decelRatio: 0.70, minApproachVel: 1.00 },
+    low:  { nearPct: 0.0004, pulseWithinSec: 30, velWindowSec: 30, velMinPct: 0.020, cooldownSec: 900, decelRatio: 0.55, minApproachVel: 2.00 },
   };
   let sens = SENSITIVITY.med;
 
@@ -3419,6 +3707,19 @@ const LIVE_SIGNALS = (function () {
     // Previous spot (1 snap back) for crossing detection
     const prevSp = (ci > 0) ? snaps[ci - 1].meta.spot : sp;
 
+    // Short-window absolute velocities (v0.8.10) for the approach/decel
+    // filter. The existing `vel` is %-over-30s — too coarse to catch the
+    // moment a fast move slows into a wall. We use 5-snap windows (~5 sec)
+    // and compare current vs prior to get a clean "decisive approach,
+    // now slowing" gate. Empirically calibrated against the 2026-05-07
+    // SPX session — see CHANGELOG v0.8.10.
+    const W_SHORT = 5;
+    let velNowAbs = 0, velPrevAbs = 0;
+    if (ci >= W_SHORT * 2) {
+      velNowAbs  = sp - snaps[ci - W_SHORT].meta.spot;
+      velPrevAbs = snaps[ci - W_SHORT].meta.spot - snaps[ci - 2 * W_SHORT].meta.spot;
+    }
+
     for (const lv of levels) {
       const wall = lv.strike;
       const distPct = Math.abs(sp - wall) / sp;
@@ -3433,16 +3734,24 @@ const LIVE_SIGNALS = (function () {
       }
 
       // ─ Rejection setup ───────────────────────────────────────────────
-      // Conditions:
+      // Conditions (tightened v0.8.10):
       //   1. spot is within nearPct of wall
-      //   2. spot velocity is approaching the wall (sign matches direction)
-      //   3. recent Pulse fire near wall
-      //   4. regime is long-γ or unknown (gamma overlay can give 'unknown')
+      //   2. spot was approaching the wall *decisively* in the prior
+      //      ~5 sec  (|velPrevAbs| ≥ minApproachVel SPX points)  —
+      //      filters out drift-around-wall noise that produced ~1800
+      //      fire-condition matches per 4-hour day in the prior version
+      //   3. spot is now decelerating into the wall
+      //      (|velNowAbs| < |velPrevAbs| × decelRatio) — the bounce
+      //      signature
+      //   4. recent Pulse fire near wall
+      //   5. regime is long-γ or unknown (gamma overlay → 'unknown')
       if (distPct <= sens.nearPct &&
           nearPulse &&
           (regime === 'long_g' || regime === 'unknown' || regime === 'flip')) {
-        const approach = Math.sign(wall - sp) === Math.sign(vel);
-        if (approach || Math.abs(vel) < sens.velMinPct) {
+        const approachingPrior = Math.sign(wall - sp) === Math.sign(velPrevAbs);
+        const approachOk = Math.abs(velPrevAbs) >= sens.minApproachVel;
+        const decelOk    = Math.abs(velNowAbs) < Math.abs(velPrevAbs) * sens.decelRatio;
+        if (approachingPrior && approachOk && decelOk) {
           const key = `rejection@${wall}`;
           if (!cooldown.has(key) || ci > cooldown.get(key)) {
             fires.push({
@@ -3455,6 +3764,8 @@ const LIVE_SIGNALS = (function () {
               pulseDir: nearPulse.dir,
               pulseMag: nearPulse.mag,
               vel,
+              velPrevAbs,
+              velNowAbs,
               holdMin: lv.holdSnaps / 60,
             });
             cooldown.set(key, ci + sens.cooldownSec);
@@ -3463,17 +3774,29 @@ const LIVE_SIGNALS = (function () {
       }
 
       // ─ Breakout setup ────────────────────────────────────────────────
-      // Conditions:
+      // Conditions (tightened v0.8.10 — acceleration mirror of rejection's
+      // deceleration filter):
       //   1. spot just crossed the wall (sign change of (sp-wall) vs prev)
-      //   2. spot velocity sustained in breakout direction
-      //   3. recent Pulse fire near wall
-      //   4. regime is short-γ OR unknown (less restrictive)
+      //   2. spot velocity sustained in breakout direction (existing %)
+      //   3. spot is *accelerating* through the wall, not just drifting:
+      //      |velNowAbs| ≥ |velPrevAbs| × accelRatio  AND
+      //      |velNowAbs| ≥ minApproachVel
+      //   4. recent Pulse fire near wall
+      //   5. regime is short-γ OR unknown (less restrictive)
       const crossed = Math.sign(prevSp - wall) !== Math.sign(sp - wall) &&
                       prevSp !== wall && sp !== wall;
       if (crossed && nearPulse) {
         const breakDir = Math.sign(sp - wall);
         const sustained = Math.sign(vel) === breakDir && Math.abs(vel) >= sens.velMinPct;
-        if (sustained && (regime === 'short_g' || regime === 'unknown' || regime === 'flip')) {
+        // Acceleration: current 5s velocity is at least 1/decelRatio of
+        // prior — i.e. spot is moving FASTER through the wall than into
+        // it. (Reusing decelRatio inverted keeps a single sensitivity knob.)
+        const accelRatio = 1 / sens.decelRatio;
+        const acceleratingThru = Math.abs(velNowAbs) >= Math.abs(velPrevAbs) * accelRatio
+                              && Math.abs(velNowAbs) >= sens.minApproachVel
+                              && Math.sign(velNowAbs) === breakDir;
+        if (sustained && acceleratingThru &&
+            (regime === 'short_g' || regime === 'unknown' || regime === 'flip')) {
           const key = `breakout@${wall}`;
           if (!cooldown.has(key) || ci > cooldown.get(key)) {
             fires.push({
@@ -3487,6 +3810,8 @@ const LIVE_SIGNALS = (function () {
               pulseDir: nearPulse.dir,
               pulseMag: nearPulse.mag,
               vel,
+              velPrevAbs,
+              velNowAbs,
               holdMin: lv.holdSnaps / 60,
             });
             cooldown.set(key, ci + sens.cooldownSec);
