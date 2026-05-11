@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.11] — Maximize-chart toggle (hide toolbar)
+
+Small button (▴/▾) at the right end of the stats bar collapses the entire
+toolbar — every control above the Spot / Net GEX / Updated line — so the
+chart fills more vertical space. Click again to bring the toolbar back.
+
+The stats bar stays visible in both states (it carries the toggle button
+plus the live readouts). State persists across reloads in `localStorage`
+under `gexbot.toolbarHidden`. The canvas reflows on toggle via the
+existing `resize()` + `render()` path.
+
 ## [0.8.10] — AUTO ★ approach/decel filter + analysis of 2026-05-07 SPX session
 
 User feedback after a 4-hour SPX recording (file

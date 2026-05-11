@@ -112,6 +112,11 @@ input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   background: var(--bg2); border-bottom: 1px solid var(--border);
   padding: 5px 10px; display: flex; gap: 16px; flex-shrink: 0; align-items: center; flex-wrap: wrap;
 }
+/* Maximize-chart toggle (v0.8.11): hide the entire #toolbar so only the
+   stats bar + chart remain visible. Stats bar exposes the button so the
+   user can always toggle back. */
+body.toolbar-hidden #toolbar { display: none; }
+.btn-collapse { padding: 2px 8px; font-size: 14px; line-height: 1; min-width: 28px; }
 .stat { display: flex; gap: 6px; align-items: baseline; }
 .slab { color: var(--label); font-size: 12px; letter-spacing: 0; font-weight: 500; }
 .sval { font-size: 14px; color: var(--text); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -641,6 +646,7 @@ canvas#prof { display: block; width: 100%; height: 100%; }
     <div class="stat"><span class="badge" id="v-mode">RAW GEX</span></div>
     <div class="stat"><span class="slab">Snaps</span><span id="v-sn" class="sval">0</span></div>
     <div class="stat"><span class="slab">Updated</span><span id="v-ts" class="sval">—</span></div>
+    <button class="btn btn-collapse" id="btnCollapseToolbar" title="Hide toolbar to maximize chart (toggle)">▴</button>
   </div>
 </div>
 
@@ -4525,6 +4531,35 @@ document.getElementById('btnLoad').addEventListener('click', () => {
     apply(next);
     try { localStorage.setItem(KEY, next); } catch (e) { /* ignore */ }
     if (typeof render === 'function' && snapshots.length) render();
+  });
+})();
+
+// ═══════════════════════════════════════════════════════
+//  MAXIMIZE CHART (toolbar hide toggle, v0.8.11)
+// ═══════════════════════════════════════════════════════
+// Hides the entire #toolbar (everything above the stats bar) so the
+// chart fills more vertical space. The button lives in the stats bar
+// so it remains visible when collapsed. Persists in localStorage under
+// 'gexbot.toolbarHidden'. After toggle we call resize() + render() so
+// the canvas reflows to the freed-up height.
+(function () {
+  const KEY = 'gexbot.toolbarHidden';
+  const btn = document.getElementById('btnCollapseToolbar');
+  if (!btn) return;
+  function apply(hidden) {
+    document.body.classList.toggle('toolbar-hidden', hidden);
+    btn.textContent = hidden ? '▾' : '▴';
+    btn.title = hidden ? 'Show toolbar (toggle)' : 'Hide toolbar to maximize chart (toggle)';
+    if (typeof resize === 'function') resize();
+    if (typeof render === 'function' && typeof snapshots !== 'undefined' && snapshots.length) render();
+  }
+  let saved = false;
+  try { saved = localStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+  apply(saved);
+  btn.addEventListener('click', () => {
+    const next = !document.body.classList.contains('toolbar-hidden');
+    apply(next);
+    try { localStorage.setItem(KEY, next ? '1' : '0'); } catch (e) { /* ignore */ }
   });
 })();
 

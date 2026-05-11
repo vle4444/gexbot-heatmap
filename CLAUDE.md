@@ -1,6 +1,6 @@
 # GEX Heatmap
 
-_Last updated: 2026-05-07 · corresponds to `v0.8.10`_
+_Last updated: 2026-05-08 · corresponds to `v0.8.11`_
 
 Live GEX (gamma exposure) heatmap dashboard for options-market visualization, built on the GexBot API. Vanilla browser JS + a dependency-free Node proxy. Personal/research project — not for redistribution.
 
